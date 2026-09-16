@@ -13,7 +13,7 @@
 - 保留诊断任务、报告版本与工具调用记录，使分析过程可追踪、可重放、可人工接管。
 - Agent 不可用时，日志接入、查询和故障管理仍然正常运行。
 
-当前版本完成第一阶段 MVP：打通“日志接入 → 查询 → 固定阈值故障 → 人工发起诊断 → Agent 报告”的真实业务闭环。自动诊断、RAG、对话追问和受控处置属于后续迭代。
+当前 Java 平台完成第一阶段 MVP 的平台侧能力：打通“日志接入 → 查询 → 固定阈值故障 → 人工发起诊断 → 接收并保存 Agent 报告”的业务闭环。Python Agent 在独立仓库中建设；自动诊断、RAG、对话追问和受控处置属于后续迭代。
 
 ## 系统架构设计
 
@@ -88,9 +88,9 @@ flowchart LR
 - 按时间、服务、环境、级别、Trace ID、关键词和指纹查询。
 - 同一分钟错误阈值检测及故障去重。
 - 手动创建诊断任务，同一故障只允许一个活动任务，完成后递增报告版本。
-- Python Agent 通过 gRPC 获取受控上下文，生成结构化启发式诊断报告。
+- 提供 Kafka 诊断事件与 gRPC 受控上下文契约，供独立的 Python Agent 接入。
 - Kafka/OpenSearch/PostgreSQL 外部适配器以及无需中间件的本地内存适配器。
-- Java 端到端自动化测试、Python 单元测试和 k6 基础吞吐脚本。
+- Java 端到端自动化测试和 k6 基础吞吐脚本。
 
 ## API
 
@@ -127,13 +127,13 @@ curl -X POST http://localhost:8080/api/v1/logs/batch \
 
 ### 完整基础设施
 
-需要 Docker Compose。该模式启动 PostgreSQL、Kafka、OpenSearch、Java 平台和 Python Agent：
+需要 Docker Compose。该模式启动 PostgreSQL、Kafka、OpenSearch 和 Java 平台：
 
 ```bash
 docker compose up --build
 ```
 
-平台 HTTP 端口为 `8080`，Java gRPC 端口为 `9090`，OpenSearch 调试端口为 `9200`。Compose 使用 `ADAPTER_MODE=external`，首次启动会初始化 PostgreSQL 表并创建 Kafka 主题。
+平台 HTTP 端口为 `8080`，Java gRPC 端口为 `9090`，OpenSearch 调试端口为 `9200`。Compose 使用 `ADAPTER_MODE=external`，首次启动会初始化 PostgreSQL 表并创建 Kafka 主题。宿主机上的独立 Agent 项目使用 `localhost:29092` 连接 Kafka、使用 `localhost:9090` 连接 Java gRPC；Compose 网络内部仍使用 `kafka:9092`。
 
 ### 无中间件本地模式
 
@@ -145,22 +145,10 @@ mvn spring-boot:run -Dspring-boot.run.arguments="--app.grpc.enabled=false"
 
 默认 `ADAPTER_MODE=local`，日志、故障和诊断任务保存在内存中，适合 API 调试和测试；进程退出后数据不会保留，也不会自动运行 Python Agent。
 
-### 单独运行 Python Agent
-
-```bash
-python -m venv .venv
-.venv/Scripts/pip install -r python-agent/requirements.txt
-set PYTHONPATH=python-agent
-.venv/Scripts/python -m agent.app
-```
-
-Linux/macOS 将最后两行改为 `export PYTHONPATH=python-agent` 和 `.venv/bin/python -m agent.app`。Agent 首次启动会依据 `src/main/proto/incident_context.proto` 自动生成 Python gRPC Stub。
-
 ## 测试与压测
 
 ```bash
 mvn test
-python -m unittest discover -s python-agent/tests -v
 k6 run load-test/log-ingestion.js
 ```
 
@@ -177,7 +165,6 @@ k6 run load-test/log-ingestion.js
 | `DATABASE_URL` | `r2dbc:postgresql://localhost:5432/observability` | PostgreSQL R2DBC 地址 |
 | `OPENSEARCH_URL` | `http://localhost:9200` | OpenSearch 地址 |
 | `GRPC_PORT` | `9090` | Java gRPC 服务端口 |
-| `JAVA_GRPC_TARGET` | `localhost:9090` | Python Agent 访问 Java 的地址 |
 
 ## MVP 边界与后续演进
 
