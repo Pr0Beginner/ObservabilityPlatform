@@ -1,0 +1,94 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: observability
+      POSTGRES_USER: observability
+      POSTGRES_PASSWORD: observability
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U observability -d observability"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  kafka:
+    image: apache/kafka:3.9.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  opensearch:
+    image: opensearchproject/opensearch:2.19.3
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  platform:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      ADAPTER_MODE: external
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      DATABASE_URL: r2dbc:postgresql://postgres:5432/observability
+      DATABASE_USERNAME: observability
+      DATABASE_PASSWORD: observability
+      SQL_INIT_MODE: always
+      OPENSEARCH_URL: http://opensearch:9200
+      GRPC_PORT: 9090
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+
+  diagnosis-agent:
+    build:
+      context: .
+      dockerfile: python-agent/Dockerfile
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      JAVA_GRPC_TARGET: platform:9090
+    depends_on:
+      kafka:
+        condition: service_healthy
+      platform:
+        condition: service_started
+    restart: on-failure
+
+volumes:
+  postgres-data:
+  opensearch-data:

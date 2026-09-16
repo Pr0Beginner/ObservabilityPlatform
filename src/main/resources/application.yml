@@ -1,0 +1,51 @@
+spring:
+  application:
+    name: observability-platform
+  jackson:
+    default-property-inclusion: non_null
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: observability-platform
+      auto-offset-reset: earliest
+  r2dbc:
+    url: ${DATABASE_URL:r2dbc:postgresql://localhost:5432/observability}
+    username: ${DATABASE_USERNAME:observability}
+    password: ${DATABASE_PASSWORD:observability}
+  sql:
+    init:
+      mode: ${SQL_INIT_MODE:never}
+  codec:
+    max-in-memory-size: 10MB
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+app:
+  adapters:
+    mode: ${ADAPTER_MODE:local}
+  ingestion:
+    max-batch-size: ${MAX_BATCH_SIZE:1000}
+  incident:
+    error-threshold: ${ERROR_THRESHOLD:3}
+  opensearch:
+    url: ${OPENSEARCH_URL:http://localhost:9200}
+    index: ${OPENSEARCH_INDEX:observability-logs}
+  grpc:
+    enabled: ${GRPC_ENABLED:true}
+    port: ${GRPC_PORT:9090}
+  kafka:
+    topics:
+      logs-raw: logs.raw.v1
+      diagnosis-requested: diagnosis.requested.v1
+      diagnosis-completed: diagnosis.completed.v1
+
+logging:
+  level:
+    org.zmy.observabilityplatform: INFO
