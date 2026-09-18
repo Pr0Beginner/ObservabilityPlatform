@@ -9,7 +9,7 @@ spring:
       group-id: observability-platform
       auto-offset-reset: earliest
   r2dbc:
-    url: ${DATABASE_URL:r2dbc:postgresql://localhost:5432/observability}
+    url: ${DATABASE_URL:r2dbc:mysql://localhost:3306/observability?serverZoneId=UTC}
     username: ${DATABASE_USERNAME:observability}
     password: ${DATABASE_PASSWORD:observability}
   sql:

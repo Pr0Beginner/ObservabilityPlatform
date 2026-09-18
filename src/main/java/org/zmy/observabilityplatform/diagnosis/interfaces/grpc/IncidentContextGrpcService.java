@@ -7,49 +7,50 @@ import org.zmy.observabilityplatform.contract.v1.IncidentContextRequest;
 import org.zmy.observabilityplatform.contract.v1.IncidentContextResponse;
 import org.zmy.observabilityplatform.contract.v1.IncidentContextServiceGrpc;
 import org.zmy.observabilityplatform.contract.v1.LogEvidence;
-import org.zmy.observabilityplatform.incident.domain.IncidentRepository;
-import org.zmy.observabilityplatform.logging.domain.LogEntry;
-import org.zmy.observabilityplatform.logging.domain.LogRepository;
+import org.zmy.observabilityplatform.incident.application.dto.IncidentView;
+import org.zmy.observabilityplatform.incident.application.service.IncidentQueryService;
+import org.zmy.observabilityplatform.logging.application.dto.LogView;
+import org.zmy.observabilityplatform.logging.application.service.LogQueryService;
+import org.zmy.observabilityplatform.shared.exception.NotFoundException;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
 
 @Component
 public class IncidentContextGrpcService extends IncidentContextServiceGrpc.IncidentContextServiceImplBase {
-    private final IncidentRepository incidentRepository;
-    private final LogRepository logRepository;
+    private final IncidentQueryService incidentQueryService;
+    private final LogQueryService logQueryService;
 
-    public IncidentContextGrpcService(IncidentRepository incidentRepository, LogRepository logRepository) {
-        this.incidentRepository = incidentRepository;
-        this.logRepository = logRepository;
+    public IncidentContextGrpcService(IncidentQueryService incidentQueryService, LogQueryService logQueryService) {
+        this.incidentQueryService = incidentQueryService;
+        this.logQueryService = logQueryService;
     }
 
     @Override
     public void getIncidentContext(IncidentContextRequest request,
                                    StreamObserver<IncidentContextResponse> responseObserver) {
         int limit = Math.max(1, Math.min(request.getLogLimit() == 0 ? 50 : request.getLogLimit(), 200));
-        Mono<IncidentContextResponse> response = incidentRepository.findById(request.getIncidentId())
-                .flatMap(incident -> logRepository.findByIncidentContext(incident.service(), incident.environment(),
+        Mono<IncidentContextResponse> response = incidentQueryService.findById(request.getIncidentId())
+                .flatMap(incident -> logQueryService.findIncidentContext(incident.service(), incident.environment(),
                                 incident.fingerprint(), limit)
                         .collectList()
                         .map(logs -> buildResponse(incident, logs)))
-                .switchIfEmpty(Mono.error(Status.NOT_FOUND
-                        .withDescription("Incident not found: " + request.getIncidentId()).asRuntimeException()));
+                .onErrorMap(NotFoundException.class, error -> Status.NOT_FOUND
+                        .withDescription(error.getMessage()).asRuntimeException());
         response.subscribe(value -> {
             responseObserver.onNext(value);
             responseObserver.onCompleted();
         }, error -> responseObserver.onError(Status.fromThrowable(error).asRuntimeException()));
     }
 
-    private IncidentContextResponse buildResponse(org.zmy.observabilityplatform.incident.domain.Incident incident,
-                                                   List<LogEntry> logs) {
+    private IncidentContextResponse buildResponse(IncidentView incident, List<LogView> logs) {
         IncidentContextResponse.Builder builder = IncidentContextResponse.newBuilder()
                 .setIncidentId(incident.id())
                 .setTitle(incident.title())
                 .setService(incident.service())
                 .setEnvironment(incident.environment())
-                .setSeverity(incident.severity().name())
-                .setStatus(incident.status().name())
+                .setSeverity(incident.severity())
+                .setStatus(incident.status())
                 .setFingerprint(incident.fingerprint());
         logs.forEach(log -> builder.addLogs(LogEvidence.newBuilder()
                 .setId(log.id())

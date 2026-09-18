@@ -1,16 +1,22 @@
 services:
-  postgres:
-    image: postgres:16-alpine
+  mysql:
+    image: mysql:8.4
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
     environment:
-      POSTGRES_DB: observability
-      POSTGRES_USER: observability
-      POSTGRES_PASSWORD: observability
+      MYSQL_DATABASE: observability
+      MYSQL_USER: observability
+      MYSQL_PASSWORD: observability
+      MYSQL_ROOT_PASSWORD: observability-root
+      TZ: UTC
     ports:
-      - "5432:5432"
+      - "3306:3306"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U observability -d observability"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -61,7 +67,7 @@ services:
     environment:
       ADAPTER_MODE: external
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      DATABASE_URL: r2dbc:postgresql://postgres:5432/observability
+      DATABASE_URL: r2dbc:mysql://mysql:3306/observability?serverZoneId=UTC
       DATABASE_USERNAME: observability
       DATABASE_PASSWORD: observability
       SQL_INIT_MODE: always
@@ -71,7 +77,7 @@ services:
       - "8080:8080"
       - "9090:9090"
     depends_on:
-      postgres:
+      mysql:
         condition: service_healthy
       kafka:
         condition: service_healthy
@@ -79,5 +85,5 @@ services:
         condition: service_healthy
 
 volumes:
-  postgres-data:
+  mysql-data:
   opensearch-data:

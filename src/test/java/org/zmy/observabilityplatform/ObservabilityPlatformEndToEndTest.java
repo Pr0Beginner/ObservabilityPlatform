@@ -5,11 +5,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.reactive.server.WebTestClient;
-import org.zmy.observabilityplatform.diagnosis.application.DiagnosisService;
-import org.zmy.observabilityplatform.diagnosis.domain.DiagnosisCompletedEvent;
-import org.zmy.observabilityplatform.diagnosis.domain.DiagnosisTask;
-import org.zmy.observabilityplatform.incident.domain.Incident;
-import org.zmy.observabilityplatform.logging.domain.LogEntry;
+import org.zmy.observabilityplatform.diagnosis.application.service.DiagnosisService;
+import org.zmy.observabilityplatform.diagnosis.domain.event.DiagnosisCompletedEvent;
+import org.zmy.observabilityplatform.diagnosis.interfaces.rest.response.DiagnosisTaskResponse;
+import org.zmy.observabilityplatform.incident.interfaces.rest.response.IncidentResponse;
+import org.zmy.observabilityplatform.logging.interfaces.rest.response.LogResponse;
 
 import java.time.Instant;
 import java.util.List;
@@ -55,11 +55,11 @@ class ObservabilityPlatformEndToEndTest {
                 .expectBody()
                 .jsonPath("$.accepted").isEqualTo(4);
 
-        List<LogEntry> storedLogs = webClient.get()
+        List<LogResponse> storedLogs = webClient.get()
                 .uri(uri -> uri.path("/api/v1/logs").queryParam("service", "orders-service").build())
                 .exchange()
                 .expectStatus().isOk()
-                .expectBodyList(LogEntry.class)
+                .expectBodyList(LogResponse.class)
                 .returnResult().getResponseBody();
         assertThat(storedLogs).hasSize(4);
         assertThat(storedLogs).anySatisfy(log -> assertThat(log.rawMessage()).contains("password=***"));
@@ -72,21 +72,21 @@ class ObservabilityPlatformEndToEndTest {
                 .exchange()
                 .expectStatus().isAccepted();
 
-        List<Incident> incidents = webClient.get().uri("/api/v1/incidents")
+        List<IncidentResponse> incidents = webClient.get().uri("/api/v1/incidents")
                 .exchange()
                 .expectStatus().isOk()
-                .expectBodyList(Incident.class)
+                .expectBodyList(IncidentResponse.class)
                 .returnResult().getResponseBody();
         assertThat(incidents).hasSize(1);
-        Incident incident = incidents.get(0);
+        IncidentResponse incident = incidents.get(0);
         assertThat(incident.service()).isEqualTo("orders-service");
         assertThat(incident.errorCount()).isEqualTo(3);
 
-        DiagnosisTask task = webClient.post()
+        DiagnosisTaskResponse task = webClient.post()
                 .uri("/api/v1/incidents/{incidentId}/diagnoses", incident.id())
                 .exchange()
                 .expectStatus().isAccepted()
-                .expectBody(DiagnosisTask.class)
+                .expectBody(DiagnosisTaskResponse.class)
                 .returnResult().getResponseBody();
         assertThat(task).isNotNull();
 
