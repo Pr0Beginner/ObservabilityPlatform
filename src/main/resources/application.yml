@@ -34,9 +34,11 @@ app:
     max-batch-size: ${MAX_BATCH_SIZE:1000}
   incident:
     error-threshold: ${ERROR_THRESHOLD:3}
-  opensearch:
-    url: ${OPENSEARCH_URL:http://localhost:9200}
-    index: ${OPENSEARCH_INDEX:observability-logs}
+  elasticsearch:
+    url: ${ELASTICSEARCH_URL:http://localhost:9200}
+    data-stream: ${ELASTICSEARCH_DATA_STREAM:logs-observability-default}
+    template: ${ELASTICSEARCH_TEMPLATE:observability-logs-template}
+    retention: ${ELASTICSEARCH_RETENTION:30d}
   grpc:
     enabled: ${GRPC_ENABLED:true}
     port: ${GRPC_PORT:9090}

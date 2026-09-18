@@ -44,18 +44,18 @@ services:
       timeout: 5s
       retries: 20
 
-  opensearch:
-    image: opensearchproject/opensearch:2.19.3
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.4
     environment:
       discovery.type: single-node
-      DISABLE_SECURITY_PLUGIN: "true"
-      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
     ports:
       - "9200:9200"
     volumes:
-      - opensearch-data:/usr/share/opensearch/data
+      - elasticsearch-data:/usr/share/elasticsearch/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null"]
+      test: ["CMD-SHELL", "curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -71,7 +71,9 @@ services:
       DATABASE_USERNAME: observability
       DATABASE_PASSWORD: observability
       SQL_INIT_MODE: always
-      OPENSEARCH_URL: http://opensearch:9200
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_DATA_STREAM: logs-observability-default
+      ELASTICSEARCH_RETENTION: 30d
       GRPC_PORT: 9090
     ports:
       - "8080:8080"
@@ -81,9 +83,9 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
-      opensearch:
+      elasticsearch:
         condition: service_healthy
 
 volumes:
   mysql-data:
-  opensearch-data:
+  elasticsearch-data:

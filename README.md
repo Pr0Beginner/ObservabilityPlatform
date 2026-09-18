@@ -14,7 +14,7 @@
 | `incident` | 异常聚合、故障去重与生命周期管理 |
 | `diagnosis` | 诊断任务编排、Agent 协作与报告管理 |
 | Kafka | 日志与诊断事件的异步传递 |
-| OpenSearch | 日志索引、条件过滤与全文检索 |
+| Elasticsearch | 日志 Data Stream、条件过滤与全文检索 |
 | MySQL | 故障、诊断任务和报告持久化 |
 
 ## 技术栈
@@ -23,7 +23,7 @@
 | --- | --- |
 | 应用框架 | Java 17、Spring Boot、Spring WebFlux |
 | 消息系统 | Kafka |
-| 日志检索 | OpenSearch |
+| 日志检索 | Elasticsearch 9.5、Data Stream |
 | 关系数据库 | MySQL、R2DBC |
 | 服务通信 | HTTP、gRPC、Protocol Buffers |
 | 部署与测试 | Docker Compose、JUnit、k6 |
@@ -44,8 +44,12 @@ docker compose up --build
 - 健康检查：`http://localhost:8080/actuator/health`
 - gRPC：`localhost:9090`
 - Kafka：`localhost:29092`
-- OpenSearch：`http://localhost:9200`
+- Elasticsearch：`http://localhost:9200`
 - MySQL：`localhost:3306`
+
+Elasticsearch 使用 `logs-observability-default` Data Stream 保存日志。应用启动后会自动安装索引模板，配置字段映射和默认 30 天数据保留周期；可通过 `ELASTICSEARCH_DATA_STREAM` 与 `ELASTICSEARCH_RETENTION` 调整。
+
+Docker Compose 为本地开发关闭了 Elasticsearch 身份认证。生产环境应启用认证与 TLS，并通过受控凭据访问集群。
 
 停止服务：
 

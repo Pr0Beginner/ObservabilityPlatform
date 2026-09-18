@@ -1,0 +1,118 @@
+package org.zmy.observabilityplatform.logging.infrastructure.repository.elasticsearch;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.zmy.observabilityplatform.logging.application.query.LogSearchQuery;
+import org.zmy.observabilityplatform.logging.domain.model.LogEntry;
+import reactor.core.publisher.Mono;
+import reactor.netty.DisposableServer;
+import reactor.netty.http.server.HttpServer;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class ElasticsearchLogRepositoryTest {
+    private static final String DATA_STREAM = "logs-observability-default";
+    private static final String TEMPLATE = "observability-logs-template";
+
+    private final AtomicReference<String> templateRequest = new AtomicReference<>();
+    private final AtomicReference<String> bulkRequest = new AtomicReference<>();
+    private final AtomicReference<String> searchRequest = new AtomicReference<>();
+
+    private DisposableServer server;
+    private ElasticsearchLogRepository repository;
+
+    @BeforeEach
+    void setUp() {
+        String timestamp = "2026-09-18T08:30:00Z";
+        server = HttpServer.create()
+                .port(0)
+                .route(routes -> routes
+                        .put("/_index_template/" + TEMPLATE, (request, response) -> request.receive()
+                                .aggregate().asString()
+                                .flatMap(body -> {
+                                    templateRequest.set(body);
+                                    return response.header("Content-Type", "application/json")
+                                            .sendString(Mono.just("{\"acknowledged\":true}"))
+                                            .then();
+                                }))
+                        .post("/" + DATA_STREAM + "/_bulk", (request, response) -> request.receive()
+                                .aggregate().asString()
+                                .flatMap(body -> {
+                                    bulkRequest.set(body);
+                                    String result = "{\"errors\":true,\"items\":["
+                                            + "{\"create\":{\"status\":201}},"
+                                            + "{\"create\":{\"status\":409,\"error\":{"
+                                            + "\"reason\":\"document already exists\"}}}]}";
+                                    return response.header("Content-Type", "application/json")
+                                            .sendString(Mono.just(result))
+                                            .then();
+                                }))
+                        .post("/" + DATA_STREAM + "/_search", (request, response) -> request.receive()
+                                .aggregate().asString()
+                                .flatMap(body -> {
+                                    searchRequest.set(body);
+                                    String result = "{\"hits\":{\"hits\":[{\"_source\":{"
+                                            + "\"@timestamp\":\"" + timestamp + "\","
+                                            + "\"id\":\"log-1\",\"batchId\":\"batch-1\","
+                                            + "\"timestamp\":\"" + timestamp + "\","
+                                            + "\"receivedAt\":\"" + timestamp + "\","
+                                            + "\"service\":\"orders\",\"environment\":\"test\","
+                                            + "\"level\":\"ERROR\",\"traceId\":\"trace-1\","
+                                            + "\"rawMessage\":\"timeout\",\"message\":\"timeout\","
+                                            + "\"fingerprint\":\"fp-1\",\"attributes\":{}}}]}}";
+                                    return response.header("Content-Type", "application/json")
+                                            .sendString(Mono.just(result))
+                                            .then();
+                                })))
+                .bindNow();
+
+        ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
+        repository = new ElasticsearchLogRepository(WebClient.builder(), objectMapper,
+                "http://localhost:" + server.port(), DATA_STREAM, TEMPLATE, "30d");
+    }
+
+    @AfterEach
+    void tearDown() {
+        server.disposeNow();
+    }
+
+    @Test
+    void installsTemplateAndUsesIdempotentDataStreamWrites() {
+        Instant timestamp = Instant.parse("2026-09-18T08:30:00Z");
+        LogEntry entry = new LogEntry("log-1", "batch-1", timestamp, timestamp,
+                "orders", "test", "ERROR", "trace-1", "timeout", "timeout", "fp-1", Map.of());
+
+        List<LogEntry> created = repository.saveAll(List.of(entry, entry))
+                .block(Duration.ofSeconds(5));
+
+        assertThat(created).containsExactly(entry);
+        assertThat(templateRequest.get())
+                .contains("\"data_stream\":{}")
+                .contains("\"data_retention\":\"30d\"")
+                .contains("\"@timestamp\":{\"type\":\"date\"}");
+        assertThat(bulkRequest.get())
+                .contains("\"create\":{\"_id\":\"log-1\"}")
+                .contains("\"@timestamp\":\"2026-09-18T08:30:00Z\"");
+
+        List<LogEntry> found = repository.search(new LogSearchQuery(null, null,
+                        "orders", "test", "ERROR", null, "timeout", null, 20))
+                .collectList()
+                .block(Duration.ofSeconds(5));
+
+        assertThat(found).containsExactly(entry);
+        assertThat(searchRequest.get())
+                .contains("\"term\":{\"service\":\"orders\"}")
+                .contains("\"multi_match\":{\"query\":\"timeout\"")
+                .contains("\"@timestamp\":{\"order\":\"desc\"}");
+    }
+}
