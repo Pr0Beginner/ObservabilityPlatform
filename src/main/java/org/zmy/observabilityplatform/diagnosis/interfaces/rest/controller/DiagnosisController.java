@@ -21,12 +21,18 @@ public class DiagnosisController {
         this.service = service;
     }
 
+    /**
+     * 为指定事件创建异步诊断任务。
+     */
     @PostMapping("/incidents/{incidentId}/diagnoses")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Mono<DiagnosisTaskResponse> create(@PathVariable String incidentId) {
         return service.create(incidentId).map(DiagnosisTaskResponse::from);
     }
 
+    /**
+     * 查询诊断任务及其诊断报告。
+     */
     @GetMapping("/diagnoses/{taskId}")
     public Mono<DiagnosisResponse> findById(@PathVariable String taskId) {
         return service.findById(taskId).map(DiagnosisResponse::from);

@@ -7,6 +7,7 @@ import java.util.HexFormat;
 
 public class LogFingerprintGenerator {
     public String generate(String service, String level, String message) {
+        // 抹平 UUID、IP、数字和空白差异，使同类日志能够聚合到同一指纹。
         String normalized = (service + "|" + level + "|" + message)
                 .toLowerCase()
                 .replaceAll("[0-9a-f]{8}-[0-9a-f-]{27,}", "<uuid>")

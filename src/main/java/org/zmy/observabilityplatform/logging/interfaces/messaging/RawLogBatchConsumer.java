@@ -22,6 +22,7 @@ public class RawLogBatchConsumer {
     @KafkaListener(topics = "${app.kafka.topics.logs-raw}", groupId = "observability-log-processor")
     public void consume(String payload) throws JsonProcessingException {
         RawLogBatch batch = objectMapper.readValue(payload, RawLogBatch.class);
+        // 等待整批处理完成后再返回，确保消费位点不会先于持久化推进。
         logProcessingService.process(batch).block();
     }
 }

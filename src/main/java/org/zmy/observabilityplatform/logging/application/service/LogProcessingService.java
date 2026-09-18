@@ -41,6 +41,7 @@ public class LogProcessingService {
     }
 
     public Mono<Void> process(RawLogBatch batch) {
+        // 先完成解析、脱敏和指纹计算；只对本次实际写入的日志执行事件检测，避免重试重复计数。
         List<LogEntry> entries = batch.logs().stream().map(raw -> toEntry(batch, raw)).toList();
         return repository.saveAll(entries)
                 .map(saved -> new InspectLogBatchCommand(saved.stream()
@@ -56,8 +57,10 @@ public class LogProcessingService {
         String message = sensitiveDataProtector.protect(parsed.message());
         String rawMessage = sensitiveDataProtector.protect(raw.content());
         String level = parsed.level() == null ? "UNKNOWN" : parsed.level().toUpperCase();
+        // 解析出的结构化属性和采集端附加属性都必须经过递归脱敏。
         Map<String, Object> attributes = protectAttributes(parsed.attributes());
         if (raw.attributes() != null) {
+            // 采集端属性后合并，使调用方显式传入的上下文拥有更高优先级。
             attributes.putAll(protectAttributes(raw.attributes()));
         }
         return new LogEntry(
@@ -84,6 +87,7 @@ public class LogProcessingService {
         if (value instanceof String text) {
             return sensitiveDataProtector.protect(text);
         }
+        // 嵌套对象和集合也可能携带敏感字段，需保留原结构逐层处理。
         if (value instanceof Map<?, ?> nested) {
             Map<String, Object> converted = new LinkedHashMap<>();
             nested.forEach((nestedKey, nestedValue) -> converted.put(String.valueOf(nestedKey),

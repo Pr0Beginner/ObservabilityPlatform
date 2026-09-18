@@ -37,10 +37,12 @@ public class DiagnosisService {
     }
 
     public Mono<DiagnosisTaskView> create(String incidentId) {
+        // 先确认事件存在，再禁止同一事件同时运行多个诊断任务。
         return incidentQueryService.findById(incidentId)
                 .then(diagnosisRepository.findActiveByIncidentId(incidentId)
                         .flatMap(existing -> Mono.<DiagnosisTask>error(
                                 new IllegalStateException("An active diagnosis already exists for this incident")))
+                        // 历史任务保留版本序列，便于区分同一事件的多次诊断结果。
                         .switchIfEmpty(Mono.defer(() -> diagnosisRepository.findLatestByIncidentId(incidentId)
                                 .map(latest -> latest.version() + 1)
                                 .defaultIfEmpty(1)
@@ -54,6 +56,7 @@ public class DiagnosisService {
                 DiagnosisTaskStatus.PENDING, now, now, null);
         DiagnosisRequestedEvent event = new DiagnosisRequestedEvent(UUID.randomUUID().toString(), task.id(),
                 incidentId, task.version(), now);
+        // 任务持久化成功后再发布请求，避免消费者处理一个尚不可查询的任务。
         return diagnosisRepository.saveTask(task)
                 .flatMap(saved -> eventPublisher.publish(event).thenReturn(saved));
     }
@@ -70,10 +73,12 @@ public class DiagnosisService {
         return diagnosisRepository.findTaskById(event.taskId())
                 .switchIfEmpty(Mono.error(new NotFoundException("Diagnosis task not found: " + event.taskId())))
                 .flatMap(task -> {
+                    // 下游显式返回错误时只更新任务状态，不生成不完整的报告。
                     if (event.error() != null && !event.error().isBlank()) {
                         return diagnosisRepository.saveTask(task.withStatus(
                                 DiagnosisTaskStatus.FAILED, event.error(), clock.instant())).then();
                     }
+                    // 报告落库后再标记任务成功，保证成功状态一定对应可查询的报告。
                     DiagnosisReport report = new DiagnosisReport(UUID.randomUUID().toString(), task.id(),
                             event.version(), event.rootCause(), event.confidence(), event.evidence(),
                             event.recommendations(), event.toolCalls(),

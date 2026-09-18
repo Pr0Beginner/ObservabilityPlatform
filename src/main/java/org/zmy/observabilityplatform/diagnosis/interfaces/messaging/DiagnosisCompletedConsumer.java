@@ -22,6 +22,7 @@ public class DiagnosisCompletedConsumer {
     @KafkaListener(topics = "${app.kafka.topics.diagnosis-completed}", groupId = "observability-diagnosis-result")
     public void consume(String payload) throws JsonProcessingException {
         DiagnosisCompletedEvent event = objectMapper.readValue(payload, DiagnosisCompletedEvent.class);
+        // 等待报告和任务状态全部落库后再确认本条消息。
         diagnosisService.complete(event).block();
     }
 }

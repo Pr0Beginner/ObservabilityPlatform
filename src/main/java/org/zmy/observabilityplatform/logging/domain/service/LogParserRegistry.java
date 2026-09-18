@@ -20,6 +20,7 @@ public class LogParserRegistry {
         try {
             return parser.parse(record);
         } catch (IllegalArgumentException parseFailure) {
+            // 单条日志解析失败不应中断整个批次，保留原文并记录失败原因供后续检索。
             return new ParsedLog(record.timestamp(), "UNKNOWN", record.content(), record.traceId(),
                     java.util.Map.of("parseError", parseFailure.getMessage()));
         }

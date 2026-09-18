@@ -43,6 +43,7 @@ public class ElasticsearchLogRepository implements LogRepository, LogQueryReposi
         this.dataStream = dataStream;
         this.templateName = templateName;
         this.retention = retention;
+        // 模板初始化结果被缓存，进程生命周期内只执行一次安装请求。
         this.templateInitialization = Mono.defer(this::installIndexTemplate).cache();
     }
 
@@ -113,6 +114,7 @@ public class ElasticsearchLogRepository implements LogRepository, LogQueryReposi
     private Mono<List<LogEntry>> bulkCreate(List<LogEntry> entries) {
         StringBuilder body = new StringBuilder();
         try {
+            // 使用 create 和稳定文档 ID，批次重试时 Elasticsearch 会用 409 表示记录已存在。
             for (LogEntry entry : entries) {
                 body.append("{\"create\":{\"_id\":\"").append(entry.id()).append("\"}}\n");
                 ObjectNode source = objectMapper.valueToTree(entry);
@@ -141,6 +143,7 @@ public class ElasticsearchLogRepository implements LogRepository, LogQueryReposi
         term(filter, "level", query.level());
         term(filter, "traceId", query.traceId());
         term(filter, "fingerprint", query.fingerprint());
+        // 精确条件和时间范围进入 filter，避免无关的相关性评分开销。
         if (query.from() != null || query.to() != null) {
             ObjectNode range = filter.addObject().putObject("range").putObject("@timestamp");
             if (query.from() != null) {
@@ -151,6 +154,7 @@ public class ElasticsearchLogRepository implements LogRepository, LogQueryReposi
             }
         }
         if (query.keyword() != null && !query.keyword().isBlank()) {
+            // 关键词同时检索解析后消息和脱敏后的原始消息。
             ObjectNode match = bool.putArray("must").addObject().putObject("multi_match");
             match.put("query", query.keyword());
             match.putArray("fields").add("message").add("rawMessage");
@@ -193,6 +197,7 @@ public class ElasticsearchLogRepository implements LogRepository, LogQueryReposi
         for (int index = 0; index < items.size(); index++) {
             JsonNode result = items.get(index).path("create");
             int status = result.path("status").asInt();
+            // 409 表示幂等重试中的重复文档，不再进入后续事件计数。
             if (status == 201) {
                 created.add(entries.get(index));
             } else if (status != 409) {

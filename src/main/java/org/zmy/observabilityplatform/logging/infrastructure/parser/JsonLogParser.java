@@ -42,6 +42,7 @@ public class JsonLogParser implements LogParser {
                 throw new IllegalArgumentException("JSON log must be an object");
             }
             Map<String, Object> attributes = new LinkedHashMap<>(objectMapper.convertValue(node, MAP_TYPE));
+            // 兼容常见日志框架的字段命名，缺失时回退到采集阶段提供的值。
             Instant timestamp = parseInstant(firstText(node, "timestamp", "@timestamp", "time"), record.timestamp());
             String level = normalizeLevel(firstText(node, "level", "severity", "logLevel"));
             String message = firstText(node, "message", "msg", "error");

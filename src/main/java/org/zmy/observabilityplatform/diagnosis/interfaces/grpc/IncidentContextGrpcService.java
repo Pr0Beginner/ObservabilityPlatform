@@ -29,6 +29,7 @@ public class IncidentContextGrpcService extends IncidentContextServiceGrpc.Incid
     @Override
     public void getIncidentContext(IncidentContextRequest request,
                                    StreamObserver<IncidentContextResponse> responseObserver) {
+        // 限制证据日志数量，避免诊断上下文过大；未指定时使用默认值 50。
         int limit = Math.max(1, Math.min(request.getLogLimit() == 0 ? 50 : request.getLogLimit(), 200));
         Mono<IncidentContextResponse> response = incidentQueryService.findById(request.getIncidentId())
                 .flatMap(incident -> logQueryService.findIncidentContext(incident.service(), incident.environment(),
@@ -37,6 +38,7 @@ public class IncidentContextGrpcService extends IncidentContextServiceGrpc.Incid
                         .map(logs -> buildResponse(incident, logs)))
                 .onErrorMap(NotFoundException.class, error -> Status.NOT_FOUND
                         .withDescription(error.getMessage()).asRuntimeException());
+        // 在 gRPC 的观察者模型边界订阅响应式链路，并统一转发完成或错误信号。
         response.subscribe(value -> {
             responseObserver.onNext(value);
             responseObserver.onCompleted();

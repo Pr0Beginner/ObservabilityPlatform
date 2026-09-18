@@ -30,6 +30,7 @@ public class ErrorThresholdDetector {
     }
 
     public Mono<Void> inspect(InspectLogBatchCommand command) {
+        // 仅错误级别日志参与告警计数，同批次按顺序处理以保证窗口计数稳定。
         pruneExpiredWindows();
         return Flux.fromIterable(command.logs())
                 .filter(entry -> "ERROR".equals(entry.level()) || "FATAL".equals(entry.level()))
@@ -38,12 +39,14 @@ public class ErrorThresholdDetector {
     }
 
     private Mono<Void> inspectOne(ObservedLogCommand entry) {
+        // 同一服务、环境和指纹在每分钟窗口内聚合为一个事件。
         Instant window = entry.timestamp().truncatedTo(ChronoUnit.MINUTES);
         String dedupKey = String.join("|", entry.service(), entry.environment(), entry.fingerprint(), window.toString());
         long count = windows.computeIfAbsent(dedupKey, ignored -> new AtomicLong()).incrementAndGet();
         if (count < threshold) {
             return Mono.empty();
         }
+        // 达到阈值后更新已有事件；首次达到阈值时创建，避免同类错误形成事件风暴。
         return incidentRepository.findByDedupKey(dedupKey)
                 .flatMap(existing -> incidentRepository.save(existing.withErrorCount(count)))
                 .switchIfEmpty(Mono.defer(() -> incidentRepository.save(new Incident(
@@ -64,6 +67,7 @@ public class ErrorThresholdDetector {
     }
 
     private void pruneExpiredWindows() {
+        // 小规模窗口无需频繁清理，超过容量后再移除过期或损坏的键。
         if (windows.size() < 1_000) {
             return;
         }

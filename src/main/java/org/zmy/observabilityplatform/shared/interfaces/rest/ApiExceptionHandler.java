@@ -13,12 +13,18 @@ import java.util.List;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    /**
+     * 将资源不存在异常转换为统一的 404 响应。
+     */
     @ExceptionHandler(NotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public ApiError notFound(NotFoundException exception) {
         return error("NOT_FOUND", exception.getMessage());
     }
 
+    /**
+     * 将参数校验和请求解析异常转换为统一的 400 响应。
+     */
     @ExceptionHandler({IllegalArgumentException.class, MethodArgumentNotValidException.class,
             ServerWebInputException.class})
     @ResponseStatus(HttpStatus.BAD_REQUEST)
@@ -26,6 +32,9 @@ public class ApiExceptionHandler {
         return error("BAD_REQUEST", exception.getMessage());
     }
 
+    /**
+     * 将业务状态冲突转换为统一的 409 响应。
+     */
     @ExceptionHandler(IllegalStateException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public ApiError conflict(IllegalStateException exception) {

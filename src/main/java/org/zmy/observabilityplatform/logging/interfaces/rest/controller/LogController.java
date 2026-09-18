@@ -37,6 +37,9 @@ public class LogController {
         this.requestAssembler = requestAssembler;
     }
 
+    /**
+     * 接收一批原始日志并提交到后续处理链路。
+     */
     @PostMapping("/batch")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Mono<LogBatchResponse> ingest(@Valid @RequestBody LogBatchRequest request) {
@@ -44,6 +47,9 @@ public class LogController {
                 .map(LogBatchResponse::from);
     }
 
+    /**
+     * 按时间、服务、环境和日志特征等条件组合查询日志。
+     */
     @GetMapping
     public Flux<LogResponse> search(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,

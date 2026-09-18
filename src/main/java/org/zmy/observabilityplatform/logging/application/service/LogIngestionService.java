@@ -36,6 +36,7 @@ public class LogIngestionService {
     }
 
     public Mono<LogIngestionResult> ingest(IngestLogBatchCommand command) {
+        // 在进入异步处理链路前拦截无效批次，避免发布无法处理的消息。
         if (command.logs() == null || command.logs().isEmpty()) {
             return Mono.error(new IllegalArgumentException("The log batch must not be empty"));
         }
@@ -49,6 +50,7 @@ public class LogIngestionService {
 
     private RawLogBatch toDomain(IngestLogBatchCommand command) {
         Instant receivedAt = clock.instant();
+        // 整个批次共享接收时间，确保缺少原始时间的日志仍能保持一致的时间基准。
         List<RawLogRecord> records = IntStream.range(0, command.logs().size())
                 .mapToObj(index -> toDomain(command.batchId(), index, receivedAt, command.logs().get(index)))
                 .toList();
@@ -56,6 +58,7 @@ public class LogIngestionService {
     }
 
     private RawLogRecord toDomain(String batchId, int index, Instant receivedAt, IngestLogItemCommand item) {
+        // 稳定 ID 让同一批次的重试命中相同记录，由存储层完成幂等去重。
         String key = batchId + ":" + index;
         String id = UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)).toString();
         RawLogFormat format;
