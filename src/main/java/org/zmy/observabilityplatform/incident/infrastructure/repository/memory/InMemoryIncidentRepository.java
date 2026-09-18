@@ -18,18 +18,18 @@ public class InMemoryIncidentRepository implements IncidentRepository {
 
     @Override
     public Mono<Incident> save(Incident incident) {
-        if (incidents.containsKey(incident.id())) {
-            incidents.put(incident.id(), incident);
+        if (incidents.containsKey(incident.getId())) {
+            incidents.put(incident.getId(), incident);
             return Mono.just(incident);
         }
         Incident existing = incidents.values().stream()
-                .filter(value -> value.dedupKey().equals(incident.dedupKey()))
+                .filter(value -> value.getDedupKey().equals(incident.getDedupKey()))
                 .findFirst()
                 .orElse(null);
         if (existing != null) {
             return Mono.just(existing);
         }
-        incidents.put(incident.id(), incident);
+        incidents.put(incident.getId(), incident);
         return Mono.just(incident);
     }
 
@@ -41,13 +41,13 @@ public class InMemoryIncidentRepository implements IncidentRepository {
     @Override
     public Mono<Incident> findByDedupKey(String dedupKey) {
         return Flux.fromIterable(incidents.values())
-                .filter(incident -> incident.dedupKey().equals(dedupKey))
+                .filter(incident -> incident.getDedupKey().equals(dedupKey))
                 .next();
     }
 
     @Override
     public Flux<Incident> findAll() {
         return Flux.fromStream(incidents.values().stream()
-                .sorted(Comparator.comparing(Incident::startedAt).reversed()));
+                .sorted(Comparator.comparing(Incident::getStartedAt).reversed()));
     }
 }

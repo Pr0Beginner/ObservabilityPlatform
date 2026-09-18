@@ -1,6 +1,10 @@
 package org.zmy.observabilityplatform.incident.application.command;
 
+import lombok.Value;
+
 import java.util.List;
 
-public record InspectLogBatchCommand(List<ObservedLogCommand> logs) {
+@Value
+public class InspectLogBatchCommand {
+    List<ObservedLogCommand> logs;
 }

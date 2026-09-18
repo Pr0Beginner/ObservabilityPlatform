@@ -1,5 +1,6 @@
 package org.zmy.observabilityplatform.shared.interfaces.rest;
 
+import lombok.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -45,5 +46,11 @@ public class ApiExceptionHandler {
         return new ApiError(code, message, Instant.now(), List.of());
     }
 
-    public record ApiError(String code, String message, Instant timestamp, List<String> details) { }
+    @Value
+    public static class ApiError {
+        String code;
+        String message;
+        Instant timestamp;
+        List<String> details;
+    }
 }

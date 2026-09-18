@@ -29,7 +29,7 @@ public class KafkaDiagnosisRequestedPublisher implements DiagnosisRequestedPubli
     public Mono<Void> publish(DiagnosisRequestedEvent event) {
         try {
             String json = objectMapper.writeValueAsString(event);
-            return Mono.fromFuture(kafkaTemplate.send(topic, event.taskId(), json)).then();
+            return Mono.fromFuture(kafkaTemplate.send(topic, event.getTaskId(), json)).then();
         } catch (JsonProcessingException exception) {
             return Mono.error(exception);
         }

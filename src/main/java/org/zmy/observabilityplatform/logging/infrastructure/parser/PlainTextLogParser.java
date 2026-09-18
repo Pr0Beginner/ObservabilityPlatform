@@ -23,12 +23,12 @@ public class PlainTextLogParser implements LogParser {
 
     @Override
     public ParsedLog parse(RawLogRecord record) {
-        String content = record.content() == null ? "" : record.content();
+        String content = record.getContent() == null ? "" : record.getContent();
         Matcher matcher = LEVEL.matcher(content);
         String level = matcher.find() ? matcher.group(1).toUpperCase(Locale.ROOT) : "INFO";
         if ("WARNING".equals(level)) {
             level = "WARN";
         }
-        return new ParsedLog(record.timestamp(), level, content, record.traceId(), new LinkedHashMap<>());
+        return ParsedLog.parsed(record.getTimestamp(), level, content, record.getTraceId(), new LinkedHashMap<>());
     }
 }

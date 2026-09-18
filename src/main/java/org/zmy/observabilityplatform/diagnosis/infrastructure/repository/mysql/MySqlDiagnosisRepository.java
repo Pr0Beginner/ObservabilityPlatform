@@ -39,12 +39,12 @@ public class MySqlDiagnosisRepository implements DiagnosisRepository {
                         ON DUPLICATE KEY UPDATE status = new.status, updated_at = new.updated_at,
                             failure_reason = new.failure_reason
                         """)
-                .bind("id", task.id()).bind("incidentId", task.incidentId()).bind("version", task.version())
-                .bind("status", task.status().name()).bind("createdAt", toDatabaseTime(task.createdAt()))
-                .bind("updatedAt", toDatabaseTime(task.updatedAt()))
-                .bind("failureReason", task.failureReason() == null ? "" : task.failureReason())
+                .bind("id", task.getId()).bind("incidentId", task.getIncidentId()).bind("version", task.getVersion())
+                .bind("status", task.getStatus().name()).bind("createdAt", toDatabaseTime(task.getCreatedAt()))
+                .bind("updatedAt", toDatabaseTime(task.getUpdatedAt()))
+                .bind("failureReason", task.getFailureReason() == null ? "" : task.getFailureReason())
                 .fetch().rowsUpdated()
-                .then(findTaskById(task.id()));
+                .then(findTaskById(task.getId()));
     }
 
     @Override
@@ -82,14 +82,14 @@ public class MySqlDiagnosisRepository implements DiagnosisRepository {
                                 recommendations = new.recommendations, tool_calls = new.tool_calls,
                                 generated_at = new.generated_at
                             """)
-                    .bind("id", report.id()).bind("taskId", report.taskId()).bind("version", report.version())
-                    .bind("rootCause", report.rootCause()).bind("confidence", report.confidence())
-                    .bind("evidence", objectMapper.writeValueAsString(report.evidence()))
-                    .bind("recommendations", objectMapper.writeValueAsString(report.recommendations()))
-                    .bind("toolCalls", objectMapper.writeValueAsString(report.toolCalls()))
-                    .bind("generatedAt", toDatabaseTime(report.generatedAt()))
+                    .bind("id", report.getId()).bind("taskId", report.getTaskId()).bind("version", report.getVersion())
+                    .bind("rootCause", report.getRootCause()).bind("confidence", report.getConfidence())
+                    .bind("evidence", objectMapper.writeValueAsString(report.getEvidence()))
+                    .bind("recommendations", objectMapper.writeValueAsString(report.getRecommendations()))
+                    .bind("toolCalls", objectMapper.writeValueAsString(report.getToolCalls()))
+                    .bind("generatedAt", toDatabaseTime(report.getGeneratedAt()))
                     .fetch().rowsUpdated()
-                    .then(findReport(report.taskId(), report.version()));
+                    .then(findReport(report.getTaskId(), report.getVersion()));
         } catch (JsonProcessingException exception) {
             return Mono.error(exception);
         }
@@ -109,7 +109,7 @@ public class MySqlDiagnosisRepository implements DiagnosisRepository {
 
     private DiagnosisTask mapTask(Row row) {
         String failureReason = row.get("failure_reason", String.class);
-        return new DiagnosisTask(row.get("id", String.class), row.get("incident_id", String.class),
+        return DiagnosisTask.restore(row.get("id", String.class), row.get("incident_id", String.class),
                 number(row.get("version", Integer.class)),
                 DiagnosisTaskStatus.valueOf(row.get("status", String.class)),
                 toInstant(row, "created_at"), toInstant(row, "updated_at"),
@@ -118,7 +118,7 @@ public class MySqlDiagnosisRepository implements DiagnosisRepository {
 
     private DiagnosisReport mapReport(Row row) {
         try {
-            return new DiagnosisReport(row.get("id", String.class), row.get("task_id", String.class),
+            return DiagnosisReport.restore(row.get("id", String.class), row.get("task_id", String.class),
                     number(row.get("version", Integer.class)), row.get("root_cause", String.class),
                     decimal(row.get("confidence", Double.class)),
                     objectMapper.readValue(row.get("evidence", String.class), STRING_LIST),

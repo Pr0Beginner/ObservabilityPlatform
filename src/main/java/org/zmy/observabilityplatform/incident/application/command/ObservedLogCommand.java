@@ -1,11 +1,14 @@
 package org.zmy.observabilityplatform.incident.application.command;
 
+import lombok.Value;
+
 import java.time.Instant;
 
-public record ObservedLogCommand(
-        Instant timestamp,
-        String service,
-        String environment,
-        String level,
-        String fingerprint) {
+@Value
+public class ObservedLogCommand {
+    Instant timestamp;
+    String service;
+    String environment;
+    String level;
+    String fingerprint;
 }

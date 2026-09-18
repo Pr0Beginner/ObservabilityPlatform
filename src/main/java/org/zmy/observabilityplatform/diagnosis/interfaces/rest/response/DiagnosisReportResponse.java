@@ -1,23 +1,30 @@
 package org.zmy.observabilityplatform.diagnosis.interfaces.rest.response;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import org.zmy.observabilityplatform.diagnosis.application.dto.DiagnosisReportView;
 
 import java.time.Instant;
 import java.util.List;
 
-public record DiagnosisReportResponse(
-        String id,
-        String taskId,
-        int version,
-        String rootCause,
-        double confidence,
-        List<String> evidence,
-        List<String> recommendations,
-        List<String> toolCalls,
-        Instant generatedAt) {
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class DiagnosisReportResponse {
+    private String id;
+    private String taskId;
+    private int version;
+    private String rootCause;
+    private double confidence;
+    private List<String> evidence;
+    private List<String> recommendations;
+    private List<String> toolCalls;
+    private Instant generatedAt;
 
     public static DiagnosisReportResponse from(DiagnosisReportView view) {
-        return new DiagnosisReportResponse(view.id(), view.taskId(), view.version(), view.rootCause(),
-                view.confidence(), view.evidence(), view.recommendations(), view.toolCalls(), view.generatedAt());
+        return new DiagnosisReportResponse(view.getId(), view.getTaskId(), view.getVersion(), view.getRootCause(),
+                view.getConfidence(), view.getEvidence(), view.getRecommendations(), view.getToolCalls(),
+                view.getGeneratedAt());
     }
 }

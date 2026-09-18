@@ -16,9 +16,10 @@ public class LogQueryService {
 
     public Flux<LogView> search(LogSearchQuery query) {
         // 限制单次返回量，防止查询参数直接放大底层存储压力。
-        int size = Math.max(1, Math.min(query.size(), 200));
-        return repository.search(new LogSearchQuery(query.from(), query.to(), query.service(), query.environment(),
-                        query.level(), query.traceId(), query.keyword(), query.fingerprint(), size))
+        int size = Math.max(1, Math.min(query.getSize(), 200));
+        return repository.search(new LogSearchQuery(query.getFrom(), query.getTo(), query.getService(),
+                        query.getEnvironment(), query.getLevel(), query.getTraceId(), query.getKeyword(),
+                        query.getFingerprint(), size))
                 .map(LogView::from);
     }
 

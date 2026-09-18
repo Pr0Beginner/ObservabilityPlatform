@@ -1,10 +1,13 @@
 package org.zmy.observabilityplatform.logging.application.command;
 
+import lombok.Value;
+
 import java.util.List;
 
-public record IngestLogBatchCommand(
-        String batchId,
-        String service,
-        String environment,
-        List<IngestLogItemCommand> logs) {
+@Value
+public class IngestLogBatchCommand {
+    String batchId;
+    String service;
+    String environment;
+    List<IngestLogItemCommand> logs;
 }

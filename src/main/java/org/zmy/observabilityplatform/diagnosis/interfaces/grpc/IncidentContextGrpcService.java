@@ -32,8 +32,8 @@ public class IncidentContextGrpcService extends IncidentContextServiceGrpc.Incid
         // 限制证据日志数量，避免诊断上下文过大；未指定时使用默认值 50。
         int limit = Math.max(1, Math.min(request.getLogLimit() == 0 ? 50 : request.getLogLimit(), 200));
         Mono<IncidentContextResponse> response = incidentQueryService.findById(request.getIncidentId())
-                .flatMap(incident -> logQueryService.findIncidentContext(incident.service(), incident.environment(),
-                                incident.fingerprint(), limit)
+                .flatMap(incident -> logQueryService.findIncidentContext(incident.getService(),
+                                incident.getEnvironment(), incident.getFingerprint(), limit)
                         .collectList()
                         .map(logs -> buildResponse(incident, logs)))
                 .onErrorMap(NotFoundException.class, error -> Status.NOT_FOUND
@@ -47,20 +47,20 @@ public class IncidentContextGrpcService extends IncidentContextServiceGrpc.Incid
 
     private IncidentContextResponse buildResponse(IncidentView incident, List<LogView> logs) {
         IncidentContextResponse.Builder builder = IncidentContextResponse.newBuilder()
-                .setIncidentId(incident.id())
-                .setTitle(incident.title())
-                .setService(incident.service())
-                .setEnvironment(incident.environment())
-                .setSeverity(incident.severity())
-                .setStatus(incident.status())
-                .setFingerprint(incident.fingerprint());
+                .setIncidentId(incident.getId())
+                .setTitle(incident.getTitle())
+                .setService(incident.getService())
+                .setEnvironment(incident.getEnvironment())
+                .setSeverity(incident.getSeverity())
+                .setStatus(incident.getStatus())
+                .setFingerprint(incident.getFingerprint());
         logs.forEach(log -> builder.addLogs(LogEvidence.newBuilder()
-                .setId(log.id())
-                .setTimestamp(log.timestamp().toString())
-                .setLevel(log.level())
-                .setTraceId(log.traceId() == null ? "" : log.traceId())
-                .setMessage(log.message())
-                .setFingerprint(log.fingerprint())
+                .setId(log.getId())
+                .setTimestamp(log.getTimestamp().toString())
+                .setLevel(log.getLevel())
+                .setTraceId(log.getTraceId() == null ? "" : log.getTraceId())
+                .setMessage(log.getMessage())
+                .setFingerprint(log.getFingerprint())
                 .build()));
         return builder.build();
     }

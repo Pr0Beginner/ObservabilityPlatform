@@ -62,10 +62,11 @@ class ObservabilityPlatformEndToEndTest {
                 .expectBodyList(LogResponse.class)
                 .returnResult().getResponseBody();
         assertThat(storedLogs).hasSize(4);
-        assertThat(storedLogs).anySatisfy(log -> assertThat(log.rawMessage()).contains("password=***"));
-        assertThat(storedLogs).filteredOn(log -> "ERROR".equals(log.level()))
-                .allSatisfy(log -> assertThat(log.attributes().get("message").toString()).contains("password=***"));
-        assertThat(storedLogs).anySatisfy(log -> assertThat(log.level()).isEqualTo("UNKNOWN"));
+        assertThat(storedLogs).anySatisfy(log -> assertThat(log.getRawMessage()).contains("password=***"));
+        assertThat(storedLogs).filteredOn(log -> "ERROR".equals(log.getLevel()))
+                .allSatisfy(log -> assertThat(log.getAttributes().get("message").toString())
+                        .contains("password=***"));
+        assertThat(storedLogs).anySatisfy(log -> assertThat(log.getLevel()).isEqualTo("UNKNOWN"));
 
         webClient.post().uri("/api/v1/logs/batch")
                 .bodyValue(request)
@@ -79,11 +80,11 @@ class ObservabilityPlatformEndToEndTest {
                 .returnResult().getResponseBody();
         assertThat(incidents).hasSize(1);
         IncidentResponse incident = incidents.get(0);
-        assertThat(incident.service()).isEqualTo("orders-service");
-        assertThat(incident.errorCount()).isEqualTo(3);
+        assertThat(incident.getService()).isEqualTo("orders-service");
+        assertThat(incident.getErrorCount()).isEqualTo(3);
 
         DiagnosisTaskResponse task = webClient.post()
-                .uri("/api/v1/incidents/{incidentId}/diagnoses", incident.id())
+                .uri("/api/v1/incidents/{incidentId}/diagnoses", incident.getId())
                 .exchange()
                 .expectStatus().isAccepted()
                 .expectBody(DiagnosisTaskResponse.class)
@@ -91,14 +92,14 @@ class ObservabilityPlatformEndToEndTest {
         assertThat(task).isNotNull();
 
         diagnosisService.complete(new DiagnosisCompletedEvent(
-                UUID.randomUUID().toString(), task.id(), incident.id(), task.version(),
+                UUID.randomUUID().toString(), task.getId(), incident.getId(), task.getVersion(),
                 "Database connectivity is unavailable", 0.91,
                 List.of("Three connection timeouts share one fingerprint"),
                 List.of("Verify database connectivity and pool saturation"),
-                List.of("IncidentContextService.GetIncidentContext(" + incident.id() + ")"),
+                List.of("IncidentContextService.GetIncidentContext(" + incident.getId() + ")"),
                 Instant.now(), null)).block();
 
-        webClient.get().uri("/api/v1/diagnoses/{taskId}", task.id())
+        webClient.get().uri("/api/v1/diagnoses/{taskId}", task.getId())
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
@@ -107,7 +108,7 @@ class ObservabilityPlatformEndToEndTest {
                 .jsonPath("$.report.evidence[0]").isEqualTo("Three connection timeouts share one fingerprint")
                 .jsonPath("$.report.toolCalls[0]").exists();
 
-        webClient.post().uri("/api/v1/incidents/{incidentId}/diagnoses", incident.id())
+        webClient.post().uri("/api/v1/incidents/{incidentId}/diagnoses", incident.getId())
                 .exchange()
                 .expectStatus().isAccepted()
                 .expectBody()

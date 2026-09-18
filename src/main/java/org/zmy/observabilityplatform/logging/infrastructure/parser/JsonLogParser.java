@@ -27,28 +27,29 @@ public class JsonLogParser implements LogParser {
 
     @Override
     public boolean supports(RawLogRecord record) {
-        if (record.format() == RawLogFormat.JSON) {
+        if (record.getFormat() == RawLogFormat.JSON) {
             return true;
         }
-        String value = record.content() == null ? "" : record.content().trim();
-        return record.format() == RawLogFormat.AUTO && value.startsWith("{") && value.endsWith("}");
+        String value = record.getContent() == null ? "" : record.getContent().trim();
+        return record.getFormat() == RawLogFormat.AUTO && value.startsWith("{") && value.endsWith("}");
     }
 
     @Override
     public ParsedLog parse(RawLogRecord record) {
         try {
-            JsonNode node = objectMapper.readTree(record.content());
+            JsonNode node = objectMapper.readTree(record.getContent());
             if (!node.isObject()) {
                 throw new IllegalArgumentException("JSON log must be an object");
             }
             Map<String, Object> attributes = new LinkedHashMap<>(objectMapper.convertValue(node, MAP_TYPE));
             // 兼容常见日志框架的字段命名，缺失时回退到采集阶段提供的值。
-            Instant timestamp = parseInstant(firstText(node, "timestamp", "@timestamp", "time"), record.timestamp());
+            Instant timestamp = parseInstant(firstText(node, "timestamp", "@timestamp", "time"),
+                    record.getTimestamp());
             String level = normalizeLevel(firstText(node, "level", "severity", "logLevel"));
             String message = firstText(node, "message", "msg", "error");
             String traceId = firstText(node, "traceId", "trace_id", "trace.id");
-            return new ParsedLog(timestamp, level, message == null ? record.content() : message,
-                    traceId == null ? record.traceId() : traceId, attributes);
+            return ParsedLog.parsed(timestamp, level, message == null ? record.getContent() : message,
+                    traceId == null ? record.getTraceId() : traceId, attributes);
         } catch (Exception exception) {
             throw new IllegalArgumentException("Invalid JSON log", exception);
         }

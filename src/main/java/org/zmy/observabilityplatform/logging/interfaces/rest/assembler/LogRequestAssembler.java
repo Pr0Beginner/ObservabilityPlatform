@@ -8,10 +8,10 @@ import org.zmy.observabilityplatform.logging.interfaces.rest.request.LogBatchReq
 @Component
 public class LogRequestAssembler {
     public IngestLogBatchCommand toCommand(LogBatchRequest request) {
-        return new IngestLogBatchCommand(request.batchId(), request.service(), request.environment(),
-                request.logs().stream()
-                        .map(item -> new IngestLogItemCommand(item.timestamp(), item.content(), item.format(),
-                                item.traceId(), item.attributes()))
+        return new IngestLogBatchCommand(request.getBatchId(), request.getService(), request.getEnvironment(),
+                request.getLogs().stream()
+                        .map(item -> new IngestLogItemCommand(item.getTimestamp(), item.getContent(), item.getFormat(),
+                                item.getTraceId(), item.getAttributes()))
                         .toList());
     }
 }

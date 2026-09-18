@@ -89,7 +89,7 @@ class ElasticsearchLogRepositoryTest {
     @Test
     void installsTemplateAndUsesIdempotentDataStreamWrites() {
         Instant timestamp = Instant.parse("2026-09-18T08:30:00Z");
-        LogEntry entry = new LogEntry("log-1", "batch-1", timestamp, timestamp,
+        LogEntry entry = LogEntry.create("log-1", "batch-1", timestamp, timestamp,
                 "orders", "test", "ERROR", "trace-1", "timeout", "timeout", "fp-1", Map.of());
 
         List<LogEntry> created = repository.saveAll(List.of(entry, entry))

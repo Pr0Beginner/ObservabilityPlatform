@@ -23,7 +23,7 @@ public class InMemoryLogRepository implements LogRepository, LogQueryRepository 
     @Override
     public Mono<List<LogEntry>> saveAll(List<LogEntry> entries) {
         List<LogEntry> inserted = entries.stream()
-                .filter(entry -> logs.putIfAbsent(entry.id(), entry) == null)
+                .filter(entry -> logs.putIfAbsent(entry.getId(), entry) == null)
                 .toList();
         return Mono.just(inserted);
     }
@@ -33,29 +33,30 @@ public class InMemoryLogRepository implements LogRepository, LogQueryRepository 
         Predicate<LogEntry> predicate = entry -> matches(entry, query);
         return Flux.fromStream(logs.values().stream()
                 .filter(predicate)
-                .sorted(Comparator.comparing(LogEntry::timestamp).reversed())
-                .limit(query.size()));
+                .sorted(Comparator.comparing(LogEntry::getTimestamp).reversed())
+                .limit(query.getSize()));
     }
 
     @Override
     public Flux<LogEntry> findByIncidentContext(String service, String environment, String fingerprint, int limit) {
         return Flux.fromStream(logs.values().stream()
-                .filter(entry -> service.equals(entry.service()))
-                .filter(entry -> environment.equals(entry.environment()))
-                .filter(entry -> fingerprint.equals(entry.fingerprint()))
-                .sorted(Comparator.comparing(LogEntry::timestamp).reversed())
+                .filter(entry -> service.equals(entry.getService()))
+                .filter(entry -> environment.equals(entry.getEnvironment()))
+                .filter(entry -> fingerprint.equals(entry.getFingerprint()))
+                .sorted(Comparator.comparing(LogEntry::getTimestamp).reversed())
                 .limit(limit));
     }
 
     private boolean matches(LogEntry entry, LogSearchQuery query) {
-        return (query.from() == null || !entry.timestamp().isBefore(query.from()))
-                && (query.to() == null || !entry.timestamp().isAfter(query.to()))
-                && sameIfPresent(query.service(), entry.service())
-                && sameIfPresent(query.environment(), entry.environment())
-                && sameIfPresent(query.level(), entry.level())
-                && sameIfPresent(query.traceId(), entry.traceId())
-                && sameIfPresent(query.fingerprint(), entry.fingerprint())
-                && (query.keyword() == null || entry.message().toLowerCase().contains(query.keyword().toLowerCase()));
+        return (query.getFrom() == null || !entry.getTimestamp().isBefore(query.getFrom()))
+                && (query.getTo() == null || !entry.getTimestamp().isAfter(query.getTo()))
+                && sameIfPresent(query.getService(), entry.getService())
+                && sameIfPresent(query.getEnvironment(), entry.getEnvironment())
+                && sameIfPresent(query.getLevel(), entry.getLevel())
+                && sameIfPresent(query.getTraceId(), entry.getTraceId())
+                && sameIfPresent(query.getFingerprint(), entry.getFingerprint())
+                && (query.getKeyword() == null
+                || entry.getMessage().toLowerCase().contains(query.getKeyword().toLowerCase()));
     }
 
     private boolean sameIfPresent(String expected, String actual) {

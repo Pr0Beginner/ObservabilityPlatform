@@ -1,4 +1,10 @@
 package org.zmy.observabilityplatform.logging.application.dto;
 
-public record LogIngestionResult(String batchId, int accepted, String status) {
+import lombok.Value;
+
+@Value
+public class LogIngestionResult {
+    String batchId;
+    int accepted;
+    String status;
 }

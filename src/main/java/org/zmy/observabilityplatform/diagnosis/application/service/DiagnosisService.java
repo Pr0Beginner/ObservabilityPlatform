@@ -9,7 +9,6 @@ import org.zmy.observabilityplatform.diagnosis.domain.event.DiagnosisCompletedEv
 import org.zmy.observabilityplatform.diagnosis.domain.event.DiagnosisRequestedEvent;
 import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisReport;
 import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisTask;
-import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisTaskStatus;
 import org.zmy.observabilityplatform.diagnosis.domain.repository.DiagnosisRepository;
 import org.zmy.observabilityplatform.incident.application.service.IncidentQueryService;
 import org.zmy.observabilityplatform.shared.exception.NotFoundException;
@@ -44,7 +43,7 @@ public class DiagnosisService {
                                 new IllegalStateException("An active diagnosis already exists for this incident")))
                         // 历史任务保留版本序列，便于区分同一事件的多次诊断结果。
                         .switchIfEmpty(Mono.defer(() -> diagnosisRepository.findLatestByIncidentId(incidentId)
-                                .map(latest -> latest.version() + 1)
+                                .map(latest -> latest.getVersion() + 1)
                                 .defaultIfEmpty(1)
                                 .flatMap(version -> createNew(incidentId, version)))))
                 .map(DiagnosisTaskView::from);
@@ -52,10 +51,9 @@ public class DiagnosisService {
 
     private Mono<DiagnosisTask> createNew(String incidentId, int version) {
         Instant now = clock.instant();
-        DiagnosisTask task = new DiagnosisTask(UUID.randomUUID().toString(), incidentId, version,
-                DiagnosisTaskStatus.PENDING, now, now, null);
-        DiagnosisRequestedEvent event = new DiagnosisRequestedEvent(UUID.randomUUID().toString(), task.id(),
-                incidentId, task.version(), now);
+        DiagnosisTask task = DiagnosisTask.request(UUID.randomUUID().toString(), incidentId, version, now);
+        DiagnosisRequestedEvent event = new DiagnosisRequestedEvent(UUID.randomUUID().toString(), task.getId(),
+                incidentId, task.getVersion(), now);
         // 任务持久化成功后再发布请求，避免消费者处理一个尚不可查询的任务。
         return diagnosisRepository.saveTask(task)
                 .flatMap(saved -> eventPublisher.publish(event).thenReturn(saved));
@@ -70,22 +68,20 @@ public class DiagnosisService {
     }
 
     public Mono<Void> complete(DiagnosisCompletedEvent event) {
-        return diagnosisRepository.findTaskById(event.taskId())
-                .switchIfEmpty(Mono.error(new NotFoundException("Diagnosis task not found: " + event.taskId())))
+        return diagnosisRepository.findTaskById(event.getTaskId())
+                .switchIfEmpty(Mono.error(new NotFoundException("Diagnosis task not found: " + event.getTaskId())))
                 .flatMap(task -> {
                     // 下游显式返回错误时只更新任务状态，不生成不完整的报告。
-                    if (event.error() != null && !event.error().isBlank()) {
-                        return diagnosisRepository.saveTask(task.withStatus(
-                                DiagnosisTaskStatus.FAILED, event.error(), clock.instant())).then();
+                    if (event.getError() != null && !event.getError().isBlank()) {
+                        return diagnosisRepository.saveTask(task.fail(event.getError(), clock.instant())).then();
                     }
                     // 报告落库后再标记任务成功，保证成功状态一定对应可查询的报告。
-                    DiagnosisReport report = new DiagnosisReport(UUID.randomUUID().toString(), task.id(),
-                            event.version(), event.rootCause(), event.confidence(), event.evidence(),
-                            event.recommendations(), event.toolCalls(),
-                            event.completedAt() == null ? clock.instant() : event.completedAt());
+                    Instant completedAt = event.getCompletedAt() == null ? clock.instant() : event.getCompletedAt();
+                    DiagnosisReport report = DiagnosisReport.generate(UUID.randomUUID().toString(), task.getId(),
+                            event.getVersion(), event.getRootCause(), event.getConfidence(), event.getEvidence(),
+                            event.getRecommendations(), event.getToolCalls(), completedAt);
                     return diagnosisRepository.saveReport(report)
-                            .then(diagnosisRepository.saveTask(task.withStatus(
-                                    DiagnosisTaskStatus.SUCCEEDED, null, clock.instant())))
+                            .then(diagnosisRepository.saveTask(task.complete(report, clock.instant())))
                             .then();
                 });
     }

@@ -116,9 +116,9 @@ public class ElasticsearchLogRepository implements LogRepository, LogQueryReposi
         try {
             // 使用 create 和稳定文档 ID，批次重试时 Elasticsearch 会用 409 表示记录已存在。
             for (LogEntry entry : entries) {
-                body.append("{\"create\":{\"_id\":\"").append(entry.id()).append("\"}}\n");
+                body.append("{\"create\":{\"_id\":\"").append(entry.getId()).append("\"}}\n");
                 ObjectNode source = objectMapper.valueToTree(entry);
-                source.put("@timestamp", entry.timestamp().toString());
+                source.put("@timestamp", entry.getTimestamp().toString());
                 body.append(objectMapper.writeValueAsString(source)).append('\n');
             }
         } catch (JsonProcessingException exception) {
@@ -134,29 +134,29 @@ public class ElasticsearchLogRepository implements LogRepository, LogQueryReposi
 
     private ObjectNode buildQuery(LogSearchQuery query) {
         ObjectNode root = objectMapper.createObjectNode();
-        root.put("size", query.size());
+        root.put("size", query.getSize());
         root.putArray("sort").addObject().putObject("@timestamp").put("order", "desc");
         ObjectNode bool = root.putObject("query").putObject("bool");
         ArrayNode filter = bool.putArray("filter");
-        term(filter, "service", query.service());
-        term(filter, "environment", query.environment());
-        term(filter, "level", query.level());
-        term(filter, "traceId", query.traceId());
-        term(filter, "fingerprint", query.fingerprint());
+        term(filter, "service", query.getService());
+        term(filter, "environment", query.getEnvironment());
+        term(filter, "level", query.getLevel());
+        term(filter, "traceId", query.getTraceId());
+        term(filter, "fingerprint", query.getFingerprint());
         // 精确条件和时间范围进入 filter，避免无关的相关性评分开销。
-        if (query.from() != null || query.to() != null) {
+        if (query.getFrom() != null || query.getTo() != null) {
             ObjectNode range = filter.addObject().putObject("range").putObject("@timestamp");
-            if (query.from() != null) {
-                range.put("gte", query.from().toString());
+            if (query.getFrom() != null) {
+                range.put("gte", query.getFrom().toString());
             }
-            if (query.to() != null) {
-                range.put("lte", query.to().toString());
+            if (query.getTo() != null) {
+                range.put("lte", query.getTo().toString());
             }
         }
-        if (query.keyword() != null && !query.keyword().isBlank()) {
+        if (query.getKeyword() != null && !query.getKeyword().isBlank()) {
             // 关键词同时检索解析后消息和脱敏后的原始消息。
             ObjectNode match = bool.putArray("must").addObject().putObject("multi_match");
-            match.put("query", query.keyword());
+            match.put("query", query.getKeyword());
             match.putArray("fields").add("message").add("rawMessage");
         }
         return root;

@@ -29,7 +29,7 @@ public class KafkaRawLogBatchPublisher implements RawLogBatchPublisher {
     public Mono<Void> publish(RawLogBatch batch) {
         try {
             String json = objectMapper.writeValueAsString(batch);
-            return Mono.fromFuture(kafkaTemplate.send(topic, batch.batchId(), json)).then();
+            return Mono.fromFuture(kafkaTemplate.send(topic, batch.getBatchId(), json)).then();
         } catch (JsonProcessingException exception) {
             return Mono.error(exception);
         }

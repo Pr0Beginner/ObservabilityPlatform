@@ -1,5 +1,7 @@
 package org.zmy.observabilityplatform.logging.domain.service;
 
+import lombok.Value;
+
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -14,10 +16,14 @@ public class SensitiveDataProtector {
     public String protect(String value) {
         String protectedValue = value == null ? "" : value;
         for (Rule rule : RULES) {
-            protectedValue = rule.pattern().matcher(protectedValue).replaceAll(rule.replacement());
+            protectedValue = rule.getPattern().matcher(protectedValue).replaceAll(rule.getReplacement());
         }
         return protectedValue;
     }
 
-    private record Rule(Pattern pattern, String replacement) { }
+    @Value
+    private static class Rule {
+        Pattern pattern;
+        String replacement;
+    }
 }
