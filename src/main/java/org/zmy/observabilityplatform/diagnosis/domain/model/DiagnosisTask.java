@@ -3,6 +3,7 @@ package org.zmy.observabilityplatform.diagnosis.domain.model;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.ToString;
+import org.zmy.observabilityplatform.shared.exception.BusinessConflictException;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -95,13 +96,13 @@ public final class DiagnosisTask {
 
     private void requireActive() {
         if (!isActive()) {
-            throw new IllegalStateException("Diagnosis task is already terminal: " + status);
+            throw new BusinessConflictException("Diagnosis task is already terminal: " + status);
         }
     }
 
     private void requireStatus(DiagnosisTaskStatus expected) {
         if (status != expected) {
-            throw new IllegalStateException("Expected diagnosis status " + expected + " but was " + status);
+            throw new BusinessConflictException("Expected diagnosis status " + expected + " but was " + status);
         }
     }
 

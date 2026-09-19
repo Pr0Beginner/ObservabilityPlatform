@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.Test;
 import org.zmy.observabilityplatform.diagnosis.domain.event.DiagnosisCompletedEvent;
+import org.zmy.observabilityplatform.shared.exception.BusinessConflictException;
 
 import java.time.Instant;
 import java.util.List;
@@ -32,7 +33,7 @@ class DiagnosisDomainTest {
 
         assertThat(completed.getStatus()).isEqualTo(DiagnosisTaskStatus.SUCCEEDED);
         assertThatThrownBy(() -> completed.fail("late failure", REQUESTED_AT.plusSeconds(20)))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(BusinessConflictException.class);
     }
 
     @Test

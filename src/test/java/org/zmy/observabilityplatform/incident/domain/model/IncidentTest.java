@@ -1,6 +1,7 @@
 package org.zmy.observabilityplatform.incident.domain.model;
 
 import org.junit.jupiter.api.Test;
+import org.zmy.observabilityplatform.shared.exception.BusinessConflictException;
 
 import java.time.Instant;
 
@@ -17,7 +18,7 @@ class IncidentTest {
 
         assertThatThrownBy(() -> incident.transitionTo(
                 IncidentStatus.CLOSED, null, STARTED_AT.plusSeconds(20)))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(BusinessConflictException.class)
                 .hasMessageContaining("resolution");
 
         Incident closed = incident.transitionTo(

@@ -12,6 +12,7 @@ import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisTask;
 import org.zmy.observabilityplatform.diagnosis.domain.repository.DiagnosisRepository;
 import org.zmy.observabilityplatform.incident.application.service.IncidentQueryService;
 import org.zmy.observabilityplatform.shared.exception.NotFoundException;
+import org.zmy.observabilityplatform.shared.exception.BusinessConflictException;
 import reactor.core.publisher.Mono;
 
 import java.time.Clock;
@@ -39,8 +40,8 @@ public class DiagnosisService {
         // 先确认事件存在，再禁止同一事件同时运行多个诊断任务。
         return incidentQueryService.findById(incidentId)
                 .then(diagnosisRepository.findActiveByIncidentId(incidentId)
-                        .flatMap(existing -> Mono.<DiagnosisTask>error(
-                                new IllegalStateException("An active diagnosis already exists for this incident")))
+                        .flatMap(existing -> Mono.<DiagnosisTask>error(new BusinessConflictException(
+                                "An active diagnosis already exists for this incident")))
                         // 历史任务保留版本序列，便于区分同一事件的多次诊断结果。
                         .switchIfEmpty(Mono.defer(() -> diagnosisRepository.findLatestByIncidentId(incidentId)
                                 .map(latest -> latest.getVersion() + 1)

@@ -3,6 +3,7 @@ package org.zmy.observabilityplatform.incident.domain.model;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.ToString;
+import org.zmy.observabilityplatform.shared.exception.BusinessConflictException;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -80,10 +81,10 @@ public final class Incident {
         Objects.requireNonNull(changedAt, "changedAt must not be null");
         requireCurrentOrLater(changedAt);
         if (!status.canTransitionTo(target)) {
-            throw new IllegalStateException("Illegal incident transition: " + status + " -> " + target);
+            throw new BusinessConflictException("Illegal incident transition: " + status + " -> " + target);
         }
         if (target == IncidentStatus.CLOSED && (resolution == null || resolution.isBlank())) {
-            throw new IllegalStateException("A resolution is required before closing an incident");
+            throw new BusinessConflictException("A resolution is required before closing an incident");
         }
         return new Incident(id, dedupKey, title, service, environment, fingerprint, severity,
                 target, startedAt, changedAt, errorCount, assignee, resolution);
