@@ -15,12 +15,15 @@ import java.util.List;
 @AllArgsConstructor
 public class LogBatchRequest {
     @NotBlank
+    @Size(max = 255)
     private String batchId;
 
     @NotBlank
+    @Size(max = 120)
     private String service;
 
     @NotBlank
+    @Size(max = 80)
     private String environment;
 
     @NotEmpty

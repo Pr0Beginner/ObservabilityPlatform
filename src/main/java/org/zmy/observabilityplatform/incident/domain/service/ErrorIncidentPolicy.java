@@ -1,6 +1,7 @@
 package org.zmy.observabilityplatform.incident.domain.service;
 
 import org.zmy.observabilityplatform.incident.domain.model.Incident;
+import org.zmy.observabilityplatform.incident.domain.model.AnomalyPolicyReference;
 import org.zmy.observabilityplatform.shared.exception.BusinessConflictException;
 
 import java.time.Instant;
@@ -27,8 +28,8 @@ public final class ErrorIncidentPolicy {
         return timestamp.truncatedTo(ChronoUnit.MINUTES);
     }
 
-    public String dedupKey(String service, String environment, String fingerprint, Instant window) {
-        return String.join("|", service, environment, fingerprint, window.toString());
+    public String dedupKey(String service, String environment, String fingerprint) {
+        return String.join("|", "REPEATED_ERROR", service, environment, fingerprint);
     }
 
     public boolean hasReachedThreshold(long count) {
@@ -37,13 +38,14 @@ public final class ErrorIncidentPolicy {
 
     public Incident openIncident(String id, String dedupKey, String service, String environment,
                                  String fingerprint, String level, long count, Instant window,
-                                 Instant openedAt) {
+                                 Instant openedAt, AnomalyPolicyReference policyReference) {
         if (!observes(level)) {
             throw new IllegalArgumentException("Only ERROR or FATAL logs can open an incident");
         }
         if (!hasReachedThreshold(count)) {
             throw new BusinessConflictException("The error threshold has not been reached");
         }
-        return Incident.open(id, dedupKey, service, environment, fingerprint, level, count, window, openedAt);
+        return Incident.open(id, dedupKey, service, environment, fingerprint, level, count, window,
+                openedAt, policyReference);
     }
 }

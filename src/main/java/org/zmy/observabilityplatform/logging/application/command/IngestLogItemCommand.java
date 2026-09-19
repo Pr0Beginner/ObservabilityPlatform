@@ -11,5 +11,14 @@ public class IngestLogItemCommand {
     String content;
     String format;
     String traceId;
+    String spanId;
+    String parentSpanId;
+    String requestId;
+    String operation;
+    String spanKind;
+    Integer statusCode;
+    Boolean success;
+    String errorCode;
+    Long durationMs;
     Map<String, Object> attributes;
 }

@@ -11,6 +11,7 @@ import reactor.core.publisher.Mono;
 import java.util.Map;
 import java.util.Comparator;
 import java.util.concurrent.ConcurrentHashMap;
+import java.time.Instant;
 
 @Repository
 @ConditionalOnProperty(name = "app.adapters.mode", havingValue = "local", matchIfMissing = true)
@@ -53,5 +54,12 @@ public class InMemoryDiagnosisRepository implements DiagnosisRepository {
     @Override
     public Mono<DiagnosisReport> findReportByTaskId(String taskId) {
         return Mono.justOrEmpty(reportsByTask.get(taskId));
+    }
+
+    @Override
+    public Flux<DiagnosisTask> findActiveUpdatedBefore(Instant cutoff) {
+        return Flux.fromIterable(tasks.values())
+                .filter(DiagnosisTask::isActive)
+                .filter(task -> task.getUpdatedAt().isBefore(cutoff));
     }
 }

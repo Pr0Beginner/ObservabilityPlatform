@@ -12,6 +12,7 @@ import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisTask;
 import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisTaskStatus;
 import org.zmy.observabilityplatform.diagnosis.domain.repository.DiagnosisRepository;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Flux;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -99,6 +100,17 @@ public class MySqlDiagnosisRepository implements DiagnosisRepository {
     public Mono<DiagnosisReport> findReportByTaskId(String taskId) {
         return databaseClient.sql("SELECT * FROM diagnosis_reports WHERE task_id = :taskId ORDER BY version DESC LIMIT 1")
                 .bind("taskId", taskId).map((row, metadata) -> mapReport(row)).one();
+    }
+
+    @Override
+    public Flux<DiagnosisTask> findActiveUpdatedBefore(Instant cutoff) {
+        return databaseClient.sql("""
+                        SELECT * FROM diagnosis_tasks
+                        WHERE status IN ('PENDING', 'RUNNING') AND updated_at < :cutoff
+                        ORDER BY updated_at ASC
+                        """)
+                .bind("cutoff", toDatabaseTime(cutoff))
+                .map((row, metadata) -> mapTask(row)).all();
     }
 
     private Mono<DiagnosisReport> findReport(String taskId, int version) {

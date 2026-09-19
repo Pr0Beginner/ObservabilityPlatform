@@ -7,6 +7,7 @@ import org.zmy.observabilityplatform.logging.domain.service.LogFingerprintGenera
 import org.zmy.observabilityplatform.logging.domain.service.LogParser;
 import org.zmy.observabilityplatform.logging.domain.service.LogParserRegistry;
 import org.zmy.observabilityplatform.logging.domain.service.SensitiveDataProtector;
+import org.zmy.observabilityplatform.logging.domain.service.TraceReconstructionService;
 
 import java.util.List;
 
@@ -32,5 +33,10 @@ public class LoggingDomainConfiguration {
                                     SensitiveDataProtector sensitiveDataProtector,
                                     LogFingerprintGenerator fingerprintGenerator) {
         return new LogEntryFactory(parserRegistry, sensitiveDataProtector, fingerprintGenerator);
+    }
+
+    @Bean
+    TraceReconstructionService traceReconstructionService() {
+        return new TraceReconstructionService();
     }
 }

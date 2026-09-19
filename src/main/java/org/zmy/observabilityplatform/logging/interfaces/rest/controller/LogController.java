@@ -58,11 +58,13 @@ public class LogController {
             @RequestParam(required = false) String environment,
             @RequestParam(required = false) String level,
             @RequestParam(required = false) String traceId,
+            @RequestParam(required = false) String spanId,
+            @RequestParam(required = false) String requestId,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String fingerprint,
             @RequestParam(defaultValue = "100") int size) {
         return queryService.search(new LogSearchQuery(from, to, service, environment, level, traceId,
-                        keyword, fingerprint, size))
+                        spanId, requestId, keyword, fingerprint, size))
                 .map(LogResponse::from);
     }
 }

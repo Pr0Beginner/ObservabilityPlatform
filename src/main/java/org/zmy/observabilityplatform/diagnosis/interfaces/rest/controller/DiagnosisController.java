@@ -37,4 +37,15 @@ public class DiagnosisController {
     public Mono<DiagnosisResponse> findById(@PathVariable String taskId) {
         return service.findById(taskId).map(DiagnosisResponse::from);
     }
+
+    @PostMapping("/diagnoses/{taskId}/cancel")
+    public Mono<DiagnosisTaskResponse> cancel(@PathVariable String taskId) {
+        return service.cancel(taskId).map(DiagnosisTaskResponse::from);
+    }
+
+    @PostMapping("/diagnoses/{taskId}/retry")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public Mono<DiagnosisTaskResponse> retry(@PathVariable String taskId) {
+        return service.retry(taskId).map(DiagnosisTaskResponse::from);
+    }
 }

@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS incidents (
+CREATE TABLE incidents (
     id VARCHAR(36) PRIMARY KEY,
     dedup_key VARCHAR(255) NOT NULL UNIQUE,
     title VARCHAR(500) NOT NULL,
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS incidents (
     INDEX idx_incidents_service_environment (service, environment)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-CREATE TABLE IF NOT EXISTS diagnosis_tasks (
+CREATE TABLE diagnosis_tasks (
     id VARCHAR(36) PRIMARY KEY,
     incident_id VARCHAR(36) NOT NULL,
     version INT NOT NULL,
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS diagnosis_tasks (
     CONSTRAINT fk_diagnosis_tasks_incident FOREIGN KEY (incident_id) REFERENCES incidents(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-CREATE TABLE IF NOT EXISTS diagnosis_reports (
+CREATE TABLE diagnosis_reports (
     id VARCHAR(36) PRIMARY KEY,
     task_id VARCHAR(36) NOT NULL,
     version INT NOT NULL,

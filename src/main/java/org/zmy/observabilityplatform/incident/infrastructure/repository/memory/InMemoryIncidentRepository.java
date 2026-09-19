@@ -2,6 +2,7 @@ package org.zmy.observabilityplatform.incident.infrastructure.repository.memory;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Repository;
+import org.zmy.observabilityplatform.incident.domain.exception.IncidentVersionConflictException;
 import org.zmy.observabilityplatform.incident.domain.model.Incident;
 import org.zmy.observabilityplatform.incident.domain.repository.IncidentRepository;
 import reactor.core.publisher.Flux;
@@ -17,20 +18,26 @@ public class InMemoryIncidentRepository implements IncidentRepository {
     private final Map<String, Incident> incidents = new ConcurrentHashMap<>();
 
     @Override
-    public Mono<Incident> save(Incident incident) {
-        if (incidents.containsKey(incident.getId())) {
-            incidents.put(incident.getId(), incident);
-            return Mono.just(incident);
+    public synchronized Mono<Incident> save(Incident incident) {
+        if (incident.getVersion() == 0) {
+            Incident existing = incidents.values().stream()
+                    .filter(value -> value.getDedupKey().equals(incident.getDedupKey()))
+                    .findFirst()
+                    .orElse(null);
+            if (existing != null) {
+                return Mono.just(existing);
+            }
+            Incident persisted = incident.persistedAtVersion(1);
+            incidents.put(persisted.getId(), persisted);
+            return Mono.just(persisted);
         }
-        Incident existing = incidents.values().stream()
-                .filter(value -> value.getDedupKey().equals(incident.getDedupKey()))
-                .findFirst()
-                .orElse(null);
-        if (existing != null) {
-            return Mono.just(existing);
+        Incident current = incidents.get(incident.getId());
+        if (current == null || current.getVersion() != incident.getVersion()) {
+            return Mono.error(new IncidentVersionConflictException(incident.getId(), incident.getVersion()));
         }
-        incidents.put(incident.getId(), incident);
-        return Mono.just(incident);
+        Incident persisted = incident.persistedAtVersion(incident.getVersion() + 1);
+        incidents.put(persisted.getId(), persisted);
+        return Mono.just(persisted);
     }
 
     @Override

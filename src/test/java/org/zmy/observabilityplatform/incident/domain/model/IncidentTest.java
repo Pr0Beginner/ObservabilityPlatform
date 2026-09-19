@@ -10,11 +10,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class IncidentTest {
     private static final Instant STARTED_AT = Instant.parse("2026-09-18T08:30:00Z");
+    private static final AnomalyPolicyReference POLICY = new AnomalyPolicyReference("global-default", 1);
 
     @Test
     void protectsStatusTransitionsAndClosingResolution() {
         Incident incident = Incident.open("incident-1", "dedup-1", "orders", "prod", "fp-1",
-                "ERROR", 3, STARTED_AT, STARTED_AT.plusSeconds(10));
+                "ERROR", 3, STARTED_AT, STARTED_AT.plusSeconds(10), POLICY);
 
         assertThatThrownBy(() -> incident.transitionTo(
                 IncidentStatus.CLOSED, null, STARTED_AT.plusSeconds(20)))
@@ -31,9 +32,9 @@ class IncidentTest {
     @Test
     void neverDecreasesObservedErrorCount() {
         Incident incident = Incident.open("incident-1", "dedup-1", "orders", "prod", "fp-1",
-                "ERROR", 3, STARTED_AT, STARTED_AT);
+                "ERROR", 3, STARTED_AT, STARTED_AT, POLICY);
 
-        Incident updated = incident.registerOccurrences(2, STARTED_AT.plusSeconds(30));
+        Incident updated = incident.registerOccurrences(2, STARTED_AT, STARTED_AT.plusSeconds(30), POLICY);
 
         assertThat(updated.getErrorCount()).isEqualTo(3);
     }

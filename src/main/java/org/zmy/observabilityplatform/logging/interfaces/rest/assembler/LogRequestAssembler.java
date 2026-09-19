@@ -11,7 +11,9 @@ public class LogRequestAssembler {
         return new IngestLogBatchCommand(request.getBatchId(), request.getService(), request.getEnvironment(),
                 request.getLogs().stream()
                         .map(item -> new IngestLogItemCommand(item.getTimestamp(), item.getContent(), item.getFormat(),
-                                item.getTraceId(), item.getAttributes()))
+                                item.getTraceId(), item.getSpanId(), item.getParentSpanId(), item.getRequestId(),
+                                item.getOperation(), item.getSpanKind(), item.getStatusCode(), item.getSuccess(),
+                                item.getErrorCode(), item.getDurationMs(), item.getAttributes()))
                         .toList());
     }
 }

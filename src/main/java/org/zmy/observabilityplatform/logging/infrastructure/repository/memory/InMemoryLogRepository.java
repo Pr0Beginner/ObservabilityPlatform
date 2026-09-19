@@ -47,6 +47,22 @@ public class InMemoryLogRepository implements LogRepository, LogQueryRepository 
                 .limit(limit));
     }
 
+    @Override
+    public Flux<LogEntry> findByTraceId(String traceId, int limit) {
+        return Flux.fromStream(logs.values().stream()
+                .filter(entry -> traceId.equals(entry.getTraceId()))
+                .sorted(Comparator.comparing(LogEntry::getTimestamp).reversed())
+                .limit(limit));
+    }
+
+    @Override
+    public Flux<LogEntry> findByRequestId(String requestId, int limit) {
+        return Flux.fromStream(logs.values().stream()
+                .filter(entry -> requestId.equals(entry.getRequestId()))
+                .sorted(Comparator.comparing(LogEntry::getTimestamp).reversed())
+                .limit(limit));
+    }
+
     private boolean matches(LogEntry entry, LogSearchQuery query) {
         return (query.getFrom() == null || !entry.getTimestamp().isBefore(query.getFrom()))
                 && (query.getTo() == null || !entry.getTimestamp().isAfter(query.getTo()))
@@ -54,6 +70,8 @@ public class InMemoryLogRepository implements LogRepository, LogQueryRepository 
                 && sameIfPresent(query.getEnvironment(), entry.getEnvironment())
                 && sameIfPresent(query.getLevel(), entry.getLevel())
                 && sameIfPresent(query.getTraceId(), entry.getTraceId())
+                && sameIfPresent(query.getSpanId(), entry.getSpanId())
+                && sameIfPresent(query.getRequestId(), entry.getRequestId())
                 && sameIfPresent(query.getFingerprint(), entry.getFingerprint())
                 && (query.getKeyword() == null
                 || entry.getMessage().toLowerCase().contains(query.getKeyword().toLowerCase()));

@@ -24,4 +24,24 @@ public class KafkaTopicConfiguration {
     NewTopic diagnosisCompletedTopic(@Value("${app.kafka.topics.diagnosis-completed}") String name) {
         return TopicBuilder.name(name).partitions(3).replicas(1).build();
     }
+
+    @Bean
+    NewTopic logsRawDeadLetterTopic(@Value("${app.kafka.topics.logs-raw}") String name) {
+        return TopicBuilder.name(name + ".DLT").partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    NewTopic diagnosisCompletedDeadLetterTopic(@Value("${app.kafka.topics.diagnosis-completed}") String name) {
+        return TopicBuilder.name(name + ".DLT").partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    NewTopic logsRawParkedTopic(@Value("${app.kafka.topics.logs-raw}") String name) {
+        return TopicBuilder.name(name + ".DLT.PARKED").partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    NewTopic diagnosisCompletedParkedTopic(@Value("${app.kafka.topics.diagnosis-completed}") String name) {
+        return TopicBuilder.name(name + ".DLT.PARKED").partitions(3).replicas(1).build();
+    }
 }

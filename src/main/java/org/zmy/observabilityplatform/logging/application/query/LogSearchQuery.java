@@ -12,6 +12,8 @@ public class LogSearchQuery {
     String environment;
     String level;
     String traceId;
+    String spanId;
+    String requestId;
     String keyword;
     String fingerprint;
     int size;

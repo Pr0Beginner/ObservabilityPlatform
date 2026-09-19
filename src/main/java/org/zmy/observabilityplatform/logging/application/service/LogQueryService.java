@@ -18,8 +18,8 @@ public class LogQueryService {
         // 限制单次返回量，防止查询参数直接放大底层存储压力。
         int size = Math.max(1, Math.min(query.getSize(), 200));
         return repository.search(new LogSearchQuery(query.getFrom(), query.getTo(), query.getService(),
-                        query.getEnvironment(), query.getLevel(), query.getTraceId(), query.getKeyword(),
-                        query.getFingerprint(), size))
+                        query.getEnvironment(), query.getLevel(), query.getTraceId(), query.getSpanId(),
+                        query.getRequestId(), query.getKeyword(), query.getFingerprint(), size))
                 .map(LogView::from);
     }
 
@@ -28,5 +28,10 @@ public class LogQueryService {
         int boundedLimit = Math.max(1, Math.min(limit, 200));
         return repository.findByIncidentContext(service, environment, fingerprint, boundedLimit)
                 .map(LogView::from);
+    }
+
+    public Flux<LogView> findByTraceId(String traceId, int limit) {
+        int boundedLimit = Math.max(1, Math.min(limit, 2_001));
+        return repository.findByTraceId(traceId, boundedLimit).map(LogView::from);
     }
 }

@@ -18,6 +18,9 @@ import reactor.core.publisher.Mono;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
+import java.time.Duration;
+import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisTaskStatus;
+import reactor.core.publisher.Flux;
 
 @Service
 public class DiagnosisService {
@@ -72,6 +75,14 @@ public class DiagnosisService {
         return diagnosisRepository.findTaskById(event.getTaskId())
                 .switchIfEmpty(Mono.error(new NotFoundException("Diagnosis task not found: " + event.getTaskId())))
                 .flatMap(task -> {
+                    if (task.getVersion() != event.getVersion()
+                            || !task.getIncidentId().equals(event.getIncidentId())) {
+                        return Mono.error(new BusinessConflictException(
+                                "Diagnosis result does not match the requested task version"));
+                    }
+                    if (!task.isActive()) {
+                        return handleDuplicateResult(task, event);
+                    }
                     // 下游显式返回错误时只更新任务状态，不生成不完整的报告。
                     if (event.getError() != null && !event.getError().isBlank()) {
                         return diagnosisRepository.saveTask(task.fail(event.getError(), clock.instant())).then();
@@ -85,5 +96,61 @@ public class DiagnosisService {
                             .then(diagnosisRepository.saveTask(task.complete(report, clock.instant())))
                             .then();
                 });
+    }
+
+    public Mono<DiagnosisTaskView> cancel(String taskId) {
+        return findTask(taskId)
+                .flatMap(task -> diagnosisRepository.saveTask(task.cancel(clock.instant())))
+                .map(DiagnosisTaskView::from);
+    }
+
+    public Mono<DiagnosisTaskView> retry(String taskId) {
+        return findTask(taskId).flatMap(task -> {
+            if (task.isActive()) {
+                return Mono.error(new BusinessConflictException("An active diagnosis cannot be retried"));
+            }
+            return create(task.getIncidentId());
+        });
+    }
+
+    public Mono<Void> timeoutExpired(Duration timeout) {
+        if (timeout.isNegative() || timeout.isZero()) {
+            return Mono.error(new IllegalArgumentException("timeout must be positive"));
+        }
+        Instant cutoff = clock.instant().minus(timeout);
+        return diagnosisRepository.findActiveUpdatedBefore(cutoff)
+                .concatMap(task -> diagnosisRepository.saveTask(task.timeout(clock.instant())))
+                .then();
+    }
+
+    private Mono<DiagnosisTask> findTask(String taskId) {
+        return diagnosisRepository.findTaskById(taskId)
+                .switchIfEmpty(Mono.error(new NotFoundException("Diagnosis task not found: " + taskId)));
+    }
+
+    private Mono<Void> handleDuplicateResult(DiagnosisTask task, DiagnosisCompletedEvent event) {
+        if (task.getStatus() == DiagnosisTaskStatus.SUCCEEDED
+                && (event.getError() == null || event.getError().isBlank())) {
+            return diagnosisRepository.findReportByTaskId(task.getId())
+                    .filter(report -> sameResult(report, event))
+                    .switchIfEmpty(Mono.error(new BusinessConflictException(
+                            "Duplicate diagnosis result conflicts with the stored report")))
+                    .then();
+        }
+        if (task.getStatus() == DiagnosisTaskStatus.FAILED
+                && event.getError() != null && event.getError().equals(task.getFailureReason())) {
+            return Mono.empty();
+        }
+        return Mono.error(new BusinessConflictException(
+                "Diagnosis task is already terminal: " + task.getStatus()));
+    }
+
+    private boolean sameResult(DiagnosisReport report, DiagnosisCompletedEvent event) {
+        return report.getVersion() == event.getVersion()
+                && report.getRootCause().equals(event.getRootCause())
+                && Double.compare(report.getConfidence(), event.getConfidence()) == 0
+                && report.getEvidence().equals(event.getEvidence())
+                && report.getRecommendations().equals(event.getRecommendations())
+                && report.getToolCalls().equals(event.getToolCalls());
     }
 }

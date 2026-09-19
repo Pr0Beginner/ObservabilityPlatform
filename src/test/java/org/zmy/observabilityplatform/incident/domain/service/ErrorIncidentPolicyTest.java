@@ -1,6 +1,7 @@
 package org.zmy.observabilityplatform.incident.domain.service;
 
 import org.junit.jupiter.api.Test;
+import org.zmy.observabilityplatform.incident.domain.model.AnomalyPolicyReference;
 import org.zmy.observabilityplatform.shared.exception.BusinessConflictException;
 
 import java.time.Instant;
@@ -20,10 +21,11 @@ class ErrorIncidentPolicyTest {
         assertThat(policy.observes("WARN")).isFalse();
         assertThat(policy.hasReachedThreshold(2)).isFalse();
         assertThat(policy.hasReachedThreshold(3)).isTrue();
-        assertThat(policy.dedupKey("orders", "prod", "fp-1", window))
-                .isEqualTo("orders|prod|fp-1|2026-09-18T08:30:00Z");
+        assertThat(policy.dedupKey("orders", "prod", "fp-1"))
+                .isEqualTo("REPEATED_ERROR|orders|prod|fp-1");
         assertThatThrownBy(() -> policy.openIncident("incident-1", "dedup-1", "orders", "prod",
-                "fp-1", "ERROR", 2, window, occurredAt))
+                "fp-1", "ERROR", 2, window, occurredAt,
+                new AnomalyPolicyReference("global-default", 1)))
                 .isInstanceOf(BusinessConflictException.class);
     }
 }

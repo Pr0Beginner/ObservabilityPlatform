@@ -76,7 +76,19 @@ public class ElasticsearchLogRepository implements LogRepository, LogQueryReposi
     @Override
     public Flux<LogEntry> findByIncidentContext(String service, String environment, String fingerprint, int limit) {
         return search(new LogSearchQuery(null, null, service, environment, null,
-                null, null, fingerprint, limit));
+                null, null, null, null, fingerprint, limit));
+    }
+
+    @Override
+    public Flux<LogEntry> findByTraceId(String traceId, int limit) {
+        return search(new LogSearchQuery(null, null, null, null, null,
+                traceId, null, null, null, null, limit));
+    }
+
+    @Override
+    public Flux<LogEntry> findByRequestId(String requestId, int limit) {
+        return search(new LogSearchQuery(null, null, null, null, null,
+                null, null, requestId, null, null, limit));
     }
 
     private Mono<Void> installIndexTemplate() {
@@ -98,6 +110,15 @@ public class ElasticsearchLogRepository implements LogRepository, LogQueryReposi
         keyword(properties, "environment");
         keyword(properties, "level");
         keyword(properties, "traceId");
+        keyword(properties, "spanId");
+        keyword(properties, "parentSpanId");
+        keyword(properties, "requestId");
+        keyword(properties, "operation");
+        keyword(properties, "spanKind");
+        properties.putObject("statusCode").put("type", "integer");
+        properties.putObject("success").put("type", "boolean");
+        keyword(properties, "errorCode");
+        properties.putObject("durationMs").put("type", "long");
         text(properties, "rawMessage");
         text(properties, "message");
         keyword(properties, "fingerprint");
@@ -142,6 +163,8 @@ public class ElasticsearchLogRepository implements LogRepository, LogQueryReposi
         term(filter, "environment", query.getEnvironment());
         term(filter, "level", query.getLevel());
         term(filter, "traceId", query.getTraceId());
+        term(filter, "spanId", query.getSpanId());
+        term(filter, "requestId", query.getRequestId());
         term(filter, "fingerprint", query.getFingerprint());
         // 精确条件和时间范围进入 filter，避免无关的相关性评分开销。
         if (query.getFrom() != null || query.getTo() != null) {

@@ -33,8 +33,14 @@ public class LogEntryFactory {
         Map<String, Object> attributes = protectAttributes(parsed.getAttributes());
         // 采集端属性后合并，使调用方显式传入的上下文拥有更高优先级。
         attributes.putAll(protectAttributes(raw.getAttributes()));
+        Boolean success = parsed.getSuccess();
+        if (success == null && parsed.getStatusCode() != null) {
+            success = parsed.getStatusCode() < 400;
+        }
         return LogEntry.create(raw.getId(), batch.getBatchId(), timestamp, batch.getReceivedAt(),
-                batch.getService(), batch.getEnvironment(), level, parsed.getTraceId(), rawMessage, message,
+                batch.getService(), batch.getEnvironment(), level, parsed.getTraceId(), parsed.getSpanId(),
+                parsed.getParentSpanId(), parsed.getRequestId(), parsed.getOperation(), parsed.getSpanKind(),
+                parsed.getStatusCode(), success, parsed.getErrorCode(), parsed.getDurationMs(), rawMessage, message,
                 fingerprintGenerator.generate(batch.getService(), level, message), attributes);
     }
 

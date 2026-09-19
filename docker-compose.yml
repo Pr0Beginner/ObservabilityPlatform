@@ -70,7 +70,9 @@ services:
       DATABASE_URL: r2dbc:mysql://mysql:3306/observability?serverZoneId=UTC
       DATABASE_USERNAME: observability
       DATABASE_PASSWORD: observability
-      SQL_INIT_MODE: always
+      MIGRATION_DATABASE_URL: jdbc:mysql://mysql:3306/observability?serverTimezone=UTC
+      # 兼容升级本项目早期由 schema.sql 创建的本地持久卷。
+      MIGRATION_BASELINE_ON_MIGRATE: "true"
       ELASTICSEARCH_URL: http://elasticsearch:9200
       ELASTICSEARCH_DATA_STREAM: logs-observability-default
       ELASTICSEARCH_RETENTION: 30d

@@ -11,4 +11,12 @@ public class ObservedLogCommand {
     String environment;
     String level;
     String fingerprint;
+    String traceId;
+    String requestId;
+    String operation;
+    String spanKind;
+    Integer statusCode;
+    Boolean success;
+    String errorCode;
+    Long durationMs;
 }

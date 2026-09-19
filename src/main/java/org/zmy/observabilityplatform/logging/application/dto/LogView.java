@@ -16,6 +16,15 @@ public class LogView {
     String environment;
     String level;
     String traceId;
+    String spanId;
+    String parentSpanId;
+    String requestId;
+    String operation;
+    String spanKind;
+    Integer statusCode;
+    Boolean success;
+    String errorCode;
+    Long durationMs;
     String rawMessage;
     String message;
     String fingerprint;
@@ -24,6 +33,9 @@ public class LogView {
     public static LogView from(LogEntry entry) {
         return new LogView(entry.getId(), entry.getBatchId(), entry.getTimestamp(), entry.getReceivedAt(),
                 entry.getService(), entry.getEnvironment(), entry.getLevel(), entry.getTraceId(),
-                entry.getRawMessage(), entry.getMessage(), entry.getFingerprint(), entry.getAttributes());
+                entry.getSpanId(), entry.getParentSpanId(), entry.getRequestId(), entry.getOperation(),
+                entry.getSpanKind(), entry.getStatusCode(), entry.getSuccess(), entry.getErrorCode(),
+                entry.getDurationMs(), entry.getRawMessage(), entry.getMessage(), entry.getFingerprint(),
+                entry.getAttributes());
     }
 }

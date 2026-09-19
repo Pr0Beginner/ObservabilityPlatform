@@ -24,9 +24,9 @@ public final class RawLogBatch {
 
     private RawLogBatch(String batchId, String service, String environment, Instant receivedAt,
                         List<RawLogRecord> logs) {
-        this.batchId = requireText(batchId, "batchId");
-        this.service = requireText(service, "service");
-        this.environment = requireText(environment, "environment");
+        this.batchId = requireText(batchId, "batchId", 255);
+        this.service = requireText(service, "service", 120);
+        this.environment = requireText(environment, "environment", 80);
         this.receivedAt = Objects.requireNonNull(receivedAt, "receivedAt must not be null");
         this.logs = List.copyOf(Objects.requireNonNull(logs, "logs must not be null"));
         if (this.logs.isEmpty()) {
@@ -44,8 +44,15 @@ public final class RawLogBatch {
     }
 
     private static String requireText(String value, String field) {
+        return requireText(value, field, Integer.MAX_VALUE);
+    }
+
+    private static String requireText(String value, String field, int maxLength) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(field + " must not be blank");
+        }
+        if (value.length() > maxLength) {
+            throw new IllegalArgumentException(field + " must not exceed " + maxLength + " characters");
         }
         return value;
     }

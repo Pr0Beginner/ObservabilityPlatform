@@ -29,6 +29,9 @@ public class PlainTextLogParser implements LogParser {
         if ("WARNING".equals(level)) {
             level = "WARN";
         }
-        return ParsedLog.parsed(record.getTimestamp(), level, content, record.getTraceId(), new LinkedHashMap<>());
+        return ParsedLog.parsed(record.getTimestamp(), level, content, record.getTraceId(), record.getSpanId(),
+                record.getParentSpanId(), record.getRequestId(), record.getOperation(), record.getSpanKind(),
+                record.getStatusCode(), record.getSuccess(), record.getErrorCode(), record.getDurationMs(),
+                new LinkedHashMap<>());
     }
 }

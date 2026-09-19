@@ -48,8 +48,23 @@ public class JsonLogParser implements LogParser {
             String level = normalizeLevel(firstText(node, "level", "severity", "logLevel"));
             String message = firstText(node, "message", "msg", "error");
             String traceId = firstText(node, "traceId", "trace_id", "trace.id");
+            String spanId = firstText(node, "spanId", "span_id", "span.id");
+            String parentSpanId = firstText(node, "parentSpanId", "parent_span_id", "parent.span.id");
+            String requestId = firstText(node, "requestId", "request_id", "http.request.id");
+            String operation = firstText(node, "operation", "route", "http.route");
+            String spanKind = firstText(node, "spanKind", "span_kind", "span.kind");
+            Integer statusCode = firstInteger(node, "statusCode", "status_code", "http.status_code");
+            Boolean success = firstBoolean(node, "success");
+            String errorCode = firstText(node, "errorCode", "error_code", "error.code");
+            Long durationMs = firstLong(node, "durationMs", "duration_ms", "http.duration_ms");
             return ParsedLog.parsed(timestamp, level, message == null ? record.getContent() : message,
-                    traceId == null ? record.getTraceId() : traceId, attributes);
+                    fallback(traceId, record.getTraceId()), fallback(spanId, record.getSpanId()),
+                    fallback(parentSpanId, record.getParentSpanId()), fallback(requestId, record.getRequestId()),
+                    fallback(operation, record.getOperation()), fallback(spanKind, record.getSpanKind()),
+                    statusCode == null ? record.getStatusCode() : statusCode,
+                    success == null ? record.getSuccess() : success,
+                    fallback(errorCode, record.getErrorCode()),
+                    durationMs == null ? record.getDurationMs() : durationMs, attributes);
         } catch (Exception exception) {
             throw new IllegalArgumentException("Invalid JSON log", exception);
         }
@@ -63,6 +78,40 @@ public class JsonLogParser implements LogParser {
             }
         }
         return null;
+    }
+
+    private Integer firstInteger(JsonNode node, String... fields) {
+        for (String field : fields) {
+            JsonNode value = node.get(field);
+            if (value != null && value.canConvertToInt()) {
+                return value.intValue();
+            }
+        }
+        return null;
+    }
+
+    private Long firstLong(JsonNode node, String... fields) {
+        for (String field : fields) {
+            JsonNode value = node.get(field);
+            if (value != null && value.canConvertToLong()) {
+                return value.longValue();
+            }
+        }
+        return null;
+    }
+
+    private Boolean firstBoolean(JsonNode node, String... fields) {
+        for (String field : fields) {
+            JsonNode value = node.get(field);
+            if (value != null && value.isBoolean()) {
+                return value.booleanValue();
+            }
+        }
+        return null;
+    }
+
+    private String fallback(String parsed, String provided) {
+        return parsed == null || parsed.isBlank() ? provided : parsed;
     }
 
     private Instant parseInstant(String value, Instant fallback) {

@@ -56,6 +56,8 @@ public class LogIngestionService {
         // 稳定 ID 让同一批次的重试命中相同记录，由存储层完成幂等去重。
         Instant timestamp = item.getTimestamp() == null ? receivedAt : item.getTimestamp();
         return RawLogRecord.capture(batchId, index, timestamp, item.getContent(), item.getFormat(),
-                item.getTraceId(), item.getAttributes());
+                item.getTraceId(), item.getSpanId(), item.getParentSpanId(), item.getRequestId(),
+                item.getOperation(), item.getSpanKind(), item.getStatusCode(), item.getSuccess(),
+                item.getErrorCode(), item.getDurationMs(), item.getAttributes());
     }
 }

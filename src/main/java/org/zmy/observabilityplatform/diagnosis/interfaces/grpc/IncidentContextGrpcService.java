@@ -9,21 +9,23 @@ import org.zmy.observabilityplatform.contract.v1.IncidentContextServiceGrpc;
 import org.zmy.observabilityplatform.contract.v1.LogEvidence;
 import org.zmy.observabilityplatform.incident.application.dto.IncidentView;
 import org.zmy.observabilityplatform.incident.application.service.IncidentQueryService;
+import org.zmy.observabilityplatform.incident.application.service.IncidentTraceQueryService;
 import org.zmy.observabilityplatform.logging.application.dto.LogView;
-import org.zmy.observabilityplatform.logging.application.service.LogQueryService;
 import org.zmy.observabilityplatform.shared.exception.NotFoundException;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.Objects;
 
 @Component
 public class IncidentContextGrpcService extends IncidentContextServiceGrpc.IncidentContextServiceImplBase {
     private final IncidentQueryService incidentQueryService;
-    private final LogQueryService logQueryService;
+    private final IncidentTraceQueryService incidentTraceQueryService;
 
-    public IncidentContextGrpcService(IncidentQueryService incidentQueryService, LogQueryService logQueryService) {
+    public IncidentContextGrpcService(IncidentQueryService incidentQueryService,
+                                      IncidentTraceQueryService incidentTraceQueryService) {
         this.incidentQueryService = incidentQueryService;
-        this.logQueryService = logQueryService;
+        this.incidentTraceQueryService = incidentTraceQueryService;
     }
 
     @Override
@@ -32,8 +34,7 @@ public class IncidentContextGrpcService extends IncidentContextServiceGrpc.Incid
         // 限制证据日志数量，避免诊断上下文过大；未指定时使用默认值 50。
         int limit = Math.max(1, Math.min(request.getLogLimit() == 0 ? 50 : request.getLogLimit(), 200));
         Mono<IncidentContextResponse> response = incidentQueryService.findById(request.getIncidentId())
-                .flatMap(incident -> logQueryService.findIncidentContext(incident.getService(),
-                                incident.getEnvironment(), incident.getFingerprint(), limit)
+                .flatMap(incident -> incidentTraceQueryService.findRelatedLogs(incident.getId(), limit)
                         .collectList()
                         .map(logs -> buildResponse(incident, logs)))
                 .onErrorMap(NotFoundException.class, error -> Status.NOT_FOUND
@@ -53,15 +54,49 @@ public class IncidentContextGrpcService extends IncidentContextServiceGrpc.Incid
                 .setEnvironment(incident.getEnvironment())
                 .setSeverity(incident.getSeverity())
                 .setStatus(incident.getStatus())
-                .setFingerprint(incident.getFingerprint());
-        logs.forEach(log -> builder.addLogs(LogEvidence.newBuilder()
+                .setFingerprint(value(incident.getFingerprint()))
+                .setIncidentType(incident.getType())
+                .setOperation(value(incident.getOperation()))
+                .setDimension(value(incident.getDimension()));
+        if (incident.getCurrentValue() != null) {
+            builder.setCurrentValue(incident.getCurrentValue());
+        }
+        if (incident.getBaselineValue() != null) {
+            builder.setBaselineValue(incident.getBaselineValue());
+        }
+        logs.stream().map(LogView::getTraceId).filter(Objects::nonNull).filter(value -> !value.isBlank())
+                .distinct().forEach(builder::addRelatedTraceIds);
+        logs.forEach(log -> builder.addLogs(toEvidence(log)));
+        return builder.build();
+    }
+
+    private LogEvidence toEvidence(LogView log) {
+        LogEvidence.Builder builder = LogEvidence.newBuilder()
                 .setId(log.getId())
                 .setTimestamp(log.getTimestamp().toString())
                 .setLevel(log.getLevel())
-                .setTraceId(log.getTraceId() == null ? "" : log.getTraceId())
+                .setTraceId(value(log.getTraceId()))
                 .setMessage(log.getMessage())
                 .setFingerprint(log.getFingerprint())
-                .build()));
+                .setSpanId(value(log.getSpanId()))
+                .setParentSpanId(value(log.getParentSpanId()))
+                .setRequestId(value(log.getRequestId()))
+                .setOperation(value(log.getOperation()))
+                .setSpanKind(value(log.getSpanKind()))
+                .setErrorCode(value(log.getErrorCode()));
+        if (log.getStatusCode() != null) {
+            builder.setStatusCode(log.getStatusCode());
+        }
+        if (log.getSuccess() != null) {
+            builder.setSuccess(log.getSuccess());
+        }
+        if (log.getDurationMs() != null) {
+            builder.setDurationMs(log.getDurationMs());
+        }
         return builder.build();
+    }
+
+    private String value(String value) {
+        return value == null ? "" : value;
     }
 }

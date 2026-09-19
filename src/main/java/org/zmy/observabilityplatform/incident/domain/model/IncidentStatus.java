@@ -18,7 +18,7 @@ public enum IncidentStatus {
             case DIAGNOSING -> EnumSet.of(TRIAGING, MITIGATING, RESOLVED);
             case MITIGATING -> EnumSet.of(RESOLVED, DIAGNOSING);
             case RESOLVED -> EnumSet.of(CLOSED, OPEN);
-            case CLOSED -> EnumSet.noneOf(IncidentStatus.class);
+            case CLOSED -> EnumSet.of(OPEN);
         };
         return allowed.contains(target);
     }

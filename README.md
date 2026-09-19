@@ -11,11 +11,11 @@
 | 模块 | 职责 |
 | --- | --- |
 | `logging` | 日志接入、解析、脱敏、指纹生成、索引与查询 |
-| `incident` | 异常聚合、故障去重与生命周期管理 |
+| `incident` | 异常策略、请求指标统计、异常检测、故障去重、恢复与通知 |
 | `diagnosis` | 诊断任务编排、Agent 协作与报告管理 |
 | Kafka | 日志与诊断事件的异步传递 |
 | Elasticsearch | 日志 Data Stream、条件过滤与全文检索 |
-| MySQL | 故障、诊断任务和报告持久化 |
+| MySQL | 指标窗口、故障、关联关系、通知、死信和诊断数据持久化 |
 
 #### Logging：日志上下文
 
@@ -23,7 +23,7 @@
 
 #### Incident：故障上下文
 
-`incident` 负责把离散的错误日志聚合成可管理的故障。它根据服务、环境、错误指纹和时间窗口生成去重键，在错误数量达到阈值后创建或更新 `Incident`，并维护故障状态、严重程度、负责人和解决结论。Incident 保存的是结构化故障信息，持久化到 MySQL；原始日志仍由 Logging 和 Elasticsearch 管理。
+`incident` 负责把日志事实和请求结果转化为可管理的故障。它按接口、服务、全局的优先级选择异常策略，检测重复错误、请求量突增/骤降/无流量、错误码占比和失败率异常；同一故障使用稳定身份跨窗口合并，连续健康后自动恢复，再次发生时重新打开。Incident 还维护负责人、状态、解决结论、代表 Trace、命中的策略版本和通知结果。原始日志仍由 Logging 和 Elasticsearch 管理。
 
 #### Diagnosis：诊断上下文
 
@@ -41,7 +41,7 @@
 一次完整链路由三个业务上下文顺序协作：
 
 1. 业务服务通过 HTTP 把日志交给 Logging；Logging 校验批次后将其发布到 Kafka，由日志消费者异步解析、脱敏、生成指纹并写入 Elasticsearch。
-2. 日志成功写入后，Logging 将错误观测交给 Incident；Incident 聚合相同错误，达到规则阈值后创建或更新故障并写入 MySQL。
+2. 日志成功写入后，Logging 将错误和请求完成事实交给 Incident；Incident 通过共享指标窗口检测异常，创建、更新或恢复故障并写入 MySQL。
 3. 研发人员为 Incident 发起诊断；Diagnosis 创建任务并通过 Kafka 通知 Diagnosis Agent。
 4. Diagnosis Agent 通过 gRPC Context Service 查询故障和相关日志，完成分析后通过 Kafka 返回结果。
 5. Diagnosis 校验任务状态，保存报告并把任务标记为成功或失败。
@@ -55,9 +55,9 @@
 | 应用框架 | Java 17、Spring Boot、Spring WebFlux |
 | 消息系统 | Kafka |
 | 日志检索 | Elasticsearch 9.5、Data Stream |
-| 关系数据库 | MySQL、R2DBC |
+| 关系数据库 | MySQL、R2DBC、Flyway |
 | 服务通信 | HTTP、gRPC、Protocol Buffers |
-| 部署与测试 | Docker Compose、JUnit、k6 |
+| 部署与测试 | Docker Compose、JUnit、Testcontainers、k6 |
 
 ## 快速开始
 
@@ -79,6 +79,10 @@ docker compose up --build
 - MySQL：`localhost:3306`
 
 Elasticsearch 使用 `logs-observability-default` Data Stream 保存日志。应用启动后会自动安装索引模板，配置字段映射和默认 30 天数据保留周期；可通过 `ELASTICSEARCH_DATA_STREAM` 与 `ELASTICSEARCH_RETENTION` 调整。
+
+外部模式启动时由 Flyway 通过 JDBC 先执行数据库版本迁移，业务数据仍通过 R2DBC 读写。迁移脚本位于 `src/main/resources/db/migration`，后续数据库结构变更必须新增版本脚本，不能修改已经发布的迁移。
+
+早期由 `schema.sql` 创建的数据库首次升级时，需要临时设置 `MIGRATION_BASELINE_ON_MIGRATE=true`；确认生成 `flyway_schema_history` 后应恢复为 `false`。全新数据库不需要开启该配置。
 
 Docker Compose 为本地开发关闭了 Elasticsearch 身份认证。生产环境应启用认证与 TLS，并通过受控凭据访问集群。
 
@@ -104,10 +108,25 @@ mvn spring-boot:run -Dspring-boot.run.arguments="--app.grpc.enabled=false"
 | --- | --- | --- |
 | `POST` | `/api/v1/logs/batch` | 批量接收日志 |
 | `GET` | `/api/v1/logs` | 查询日志 |
+| `GET` | `/api/v1/traces/{traceId}` | 查询日志并还原服务调用树 |
+| `GET` | `/api/v1/requests/{requestId}/traces` | 通过请求标识查询调用链 |
+| `GET` | `/api/v1/traces/{traceId}/incidents` | 查询调用链关联故障 |
 | `GET` | `/api/v1/incidents` | 查询故障列表 |
 | `GET` | `/api/v1/incidents/{incidentId}` | 查询故障详情 |
+| `GET` | `/api/v1/incidents/{incidentId}/traces` | 查询故障关联调用链 |
+| `GET` | `/api/v1/incidents/{incidentId}/notifications` | 查询故障通知结果 |
+| `PATCH` | `/api/v1/incidents/{incidentId}/assignee` | 分派故障 |
+| `PATCH` | `/api/v1/incidents/{incidentId}/status` | 流转状态并填写解决结论 |
 | `POST` | `/api/v1/incidents/{incidentId}/diagnoses` | 创建诊断任务 |
 | `GET` | `/api/v1/diagnoses/{taskId}` | 查询诊断任务与报告 |
+| `POST` | `/api/v1/diagnoses/{taskId}/cancel` | 取消诊断任务 |
+| `POST` | `/api/v1/diagnoses/{taskId}/retry` | 创建下一版本诊断任务 |
+| `GET` | `/api/v1/dead-letters` | 查询不可处理消息 |
+| `POST` | `/api/v1/dead-letters/{id}/replay` | 重放死信消息 |
+| `GET` | `/api/v1/anomaly-policies` | 查询异常策略 |
+| `GET` | `/api/v1/anomaly-policies/{policyId}` | 查询异常策略详情 |
+| `POST` | `/api/v1/anomaly-policies` | 创建服务或接口异常策略 |
+| `PUT` | `/api/v1/anomaly-policies/{policyId}` | 按版本修改异常策略 |
 | `GET` | `/actuator/health` | 健康检查 |
 
 日志接入示例：
@@ -122,12 +141,14 @@ curl -X POST http://localhost:8080/api/v1/logs/batch \
     "logs": [
       {
         "timestamp": "2026-09-16T10:00:00Z",
-        "content": "{\"level\":\"ERROR\",\"message\":\"database connection timed out\",\"traceId\":\"trace-001\"}",
+        "content": "{\"level\":\"ERROR\",\"message\":\"database connection timed out\",\"traceId\":\"0af7651916cd43dd8448eb211c80319c\",\"spanId\":\"b7ad6b7169203331\",\"operation\":\"POST /orders\",\"statusCode\":500,\"success\":false,\"errorCode\":\"DATABASE_TIMEOUT\",\"durationMs\":1200}",
         "format": "JSON"
       }
     ]
   }'
 ```
+
+链路中的服务共享同一个 `traceId`，每次服务调用使用独立 `spanId`，并通过 `parentSpanId` 记录上游调用。平台 API 会在响应头返回 `X-Trace-Id`；被观测服务也需要在入口生成或接收 Trace 上下文，并向下游透传。
 
 ### 错误响应
 
@@ -177,5 +198,8 @@ src/main/java/org/zmy/observabilityplatform
 
 ```bash
 mvn test
+mvn verify -Pintegration-tests
 k6 run load-test/log-ingestion.js
 ```
+
+`mvn test` 只运行快速单元测试；`integration-tests` Profile 使用 Testcontainers 启动 MySQL、Kafka 和 Elasticsearch，需要本机提供 Docker 环境。

@@ -68,6 +68,10 @@ class ElasticsearchLogRepositoryTest {
                                             + "\"receivedAt\":\"" + timestamp + "\","
                                             + "\"service\":\"orders\",\"environment\":\"test\","
                                             + "\"level\":\"ERROR\",\"traceId\":\"trace-1\","
+                                            + "\"spanId\":\"span-1\",\"parentSpanId\":\"span-0\","
+                                            + "\"requestId\":\"request-1\",\"operation\":\"POST /orders\","
+                                            + "\"spanKind\":\"SERVER\",\"statusCode\":504,\"success\":false,"
+                                            + "\"errorCode\":\"TIMEOUT\",\"durationMs\":1200,"
                                             + "\"rawMessage\":\"timeout\",\"message\":\"timeout\","
                                             + "\"fingerprint\":\"fp-1\",\"attributes\":{}}}]}}";
                                     return response.header("Content-Type", "application/json")
@@ -90,7 +94,9 @@ class ElasticsearchLogRepositoryTest {
     void installsTemplateAndUsesIdempotentDataStreamWrites() {
         Instant timestamp = Instant.parse("2026-09-18T08:30:00Z");
         LogEntry entry = LogEntry.create("log-1", "batch-1", timestamp, timestamp,
-                "orders", "test", "ERROR", "trace-1", "timeout", "timeout", "fp-1", Map.of());
+                "orders", "test", "ERROR", "trace-1", "span-1", "span-0", "request-1",
+                "POST /orders", "SERVER", 504, false, "TIMEOUT", 1200L,
+                "timeout", "timeout", "fp-1", Map.of());
 
         List<LogEntry> created = repository.saveAll(List.of(entry, entry))
                 .block(Duration.ofSeconds(5));
@@ -99,19 +105,23 @@ class ElasticsearchLogRepositoryTest {
         assertThat(templateRequest.get())
                 .contains("\"data_stream\":{}")
                 .contains("\"data_retention\":\"30d\"")
-                .contains("\"@timestamp\":{\"type\":\"date\"}");
+                .contains("\"@timestamp\":{\"type\":\"date\"}")
+                .contains("\"spanId\":{\"type\":\"keyword\"}")
+                .contains("\"durationMs\":{\"type\":\"long\"}");
         assertThat(bulkRequest.get())
                 .contains("\"create\":{\"_id\":\"log-1\"}")
                 .contains("\"@timestamp\":\"2026-09-18T08:30:00Z\"");
 
         List<LogEntry> found = repository.search(new LogSearchQuery(null, null,
-                        "orders", "test", "ERROR", null, "timeout", null, 20))
+                        "orders", "test", "ERROR", "trace-1", "span-1", "request-1", "timeout", null, 20))
                 .collectList()
                 .block(Duration.ofSeconds(5));
 
         assertThat(found).containsExactly(entry);
         assertThat(searchRequest.get())
                 .contains("\"term\":{\"service\":\"orders\"}")
+                .contains("\"term\":{\"spanId\":\"span-1\"}")
+                .contains("\"term\":{\"requestId\":\"request-1\"}")
                 .contains("\"multi_match\":{\"query\":\"timeout\"")
                 .contains("\"@timestamp\":{\"order\":\"desc\"}");
     }
