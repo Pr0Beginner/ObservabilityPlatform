@@ -1,5 +1,10 @@
 import http from 'k6/http';
 import { check } from 'k6';
+import encoding from 'k6/encoding';
+
+const operatorUsername = __ENV.OPERATOR_USERNAME || 'operator';
+const operatorPassword = __ENV.OPERATOR_PASSWORD || 'operator-local';
+const authorization = `Basic ${encoding.b64encode(`${operatorUsername}:${operatorPassword}`)}`;
 
 export const options = {
   scenarios: {
@@ -32,7 +37,10 @@ export default function () {
     })),
   });
   const response = http.post('http://localhost:8080/api/v1/logs/batch', payload, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: authorization,
+      'Content-Type': 'application/json',
+    },
   });
   check(response, { accepted: (result) => result.status === 202 });
 }

@@ -16,6 +16,8 @@ public interface DiagnosisRepository {
 
     Mono<DiagnosisTask> findLatestByIncidentId(String incidentId);
 
+    Flux<DiagnosisTask> findByIncidentId(String incidentId, int limit);
+
     Mono<DiagnosisReport> saveReport(DiagnosisReport report);
 
     Mono<DiagnosisReport> findReportByTaskId(String taskId);

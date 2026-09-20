@@ -71,7 +71,7 @@ class IncidentConcurrencyTest {
         Clock clock = Clock.fixed(START.plusSeconds(300), ZoneOffset.UTC);
         IncidentNotifier notifier = (incident, notification) -> Mono.empty();
         IncidentNotificationService notifications = new IncidentNotificationService(
-                new InMemoryIncidentNotificationRepository(), repository, notifier, clock, 120);
+                new InMemoryIncidentNotificationRepository(), repository, notifier, clock, 120, 5);
         return new IncidentLifecycleService(repository, notifications);
     }
 

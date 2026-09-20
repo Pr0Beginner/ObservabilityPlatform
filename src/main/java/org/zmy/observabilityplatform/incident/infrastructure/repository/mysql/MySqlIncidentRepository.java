@@ -4,6 +4,8 @@ import io.r2dbc.spi.Row;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Repository;
+import org.zmy.observabilityplatform.incident.application.query.IncidentQueryRepository;
+import org.zmy.observabilityplatform.incident.application.query.IncidentSearchQuery;
 import org.zmy.observabilityplatform.incident.domain.exception.IncidentVersionConflictException;
 import org.zmy.observabilityplatform.incident.domain.model.AnomalyPolicyReference;
 import org.zmy.observabilityplatform.incident.domain.model.Incident;
@@ -11,16 +13,19 @@ import org.zmy.observabilityplatform.incident.domain.model.IncidentSeverity;
 import org.zmy.observabilityplatform.incident.domain.model.IncidentStatus;
 import org.zmy.observabilityplatform.incident.domain.model.IncidentType;
 import org.zmy.observabilityplatform.incident.domain.repository.IncidentRepository;
+import org.zmy.observabilityplatform.shared.application.query.PageResult;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 
 @Repository
 @ConditionalOnProperty(name = "app.adapters.mode", havingValue = "external")
-public class MySqlIncidentRepository implements IncidentRepository {
+public class MySqlIncidentRepository implements IncidentRepository, IncidentQueryRepository {
     private static final String COLUMNS = "id, dedup_key, title, service, environment, fingerprint, incident_type, "
             + "operation_name, dimension_value, severity, status, started_at, updated_at, error_count, assignee, "
             + "resolution, current_value, baseline_value, recovered_at, healthy_window_count, last_observed_window, "
@@ -120,6 +125,67 @@ public class MySqlIncidentRepository implements IncidentRepository {
     public Flux<Incident> findAll() {
         return databaseClient.sql("SELECT " + COLUMNS + " FROM incidents ORDER BY started_at DESC LIMIT 200")
                 .map((row, metadata) -> map(row)).all();
+    }
+
+    @Override
+    public Mono<PageResult<Incident>> search(IncidentSearchQuery query) {
+        String predicate = predicate(query);
+        DatabaseClient.GenericExecuteSpec countSpec = bindFilters(
+                databaseClient.sql("SELECT COUNT(*) AS total FROM incidents" + predicate), query);
+        Mono<Long> total = countSpec.map((row, metadata) -> value(row.get("total", Long.class))).one();
+
+        DatabaseClient.GenericExecuteSpec pageSpec = bindFilters(databaseClient.sql("SELECT " + COLUMNS
+                + " FROM incidents" + predicate
+                + " ORDER BY started_at DESC, id ASC LIMIT :limit OFFSET :offset"), query)
+                .bind("limit", query.getSize())
+                .bind("offset", query.offset());
+        Mono<List<Incident>> items = pageSpec.map((row, metadata) -> map(row)).all().collectList();
+        return Mono.zip(items, total)
+                .map(tuple -> PageResult.of(tuple.getT1(), query.getPage(), query.getSize(), tuple.getT2()));
+    }
+
+    private String predicate(IncidentSearchQuery query) {
+        List<String> conditions = new ArrayList<>();
+        addIfPresent(conditions, query.getStatus(), "status = :status");
+        addIfPresent(conditions, query.getType(), "incident_type = :type");
+        addIfPresent(conditions, query.getService(), "service = :service");
+        addIfPresent(conditions, query.getEnvironment(), "environment = :environment");
+        addIfPresent(conditions, query.getAssignee(), "assignee = :assignee");
+        addIfPresent(conditions, query.getStartedFrom(), "started_at >= :startedFrom");
+        addIfPresent(conditions, query.getStartedTo(), "started_at <= :startedTo");
+        return conditions.isEmpty() ? "" : " WHERE " + String.join(" AND ", conditions);
+    }
+
+    private DatabaseClient.GenericExecuteSpec bindFilters(DatabaseClient.GenericExecuteSpec spec,
+                                                           IncidentSearchQuery query) {
+        if (query.getStatus() != null) {
+            spec = spec.bind("status", query.getStatus().name());
+        }
+        if (query.getType() != null) {
+            spec = spec.bind("type", query.getType().name());
+        }
+        if (query.getService() != null) {
+            spec = spec.bind("service", query.getService());
+        }
+        if (query.getEnvironment() != null) {
+            spec = spec.bind("environment", query.getEnvironment());
+        }
+        if (query.getAssignee() != null) {
+            spec = spec.bind("assignee", query.getAssignee());
+        }
+        if (query.getStartedFrom() != null) {
+            spec = spec.bind("startedFrom", toDatabaseTime(query.getStartedFrom()));
+        }
+        if (query.getStartedTo() != null) {
+            spec = spec.bind("startedTo", toDatabaseTime(query.getStartedTo()));
+        }
+        return spec;
+    }
+
+    private void addIfPresent(List<String> conditions, Object value, String condition) {
+        if (value != null) {
+            conditions.add(condition);
+        }
     }
 
     private Incident map(Row row) {

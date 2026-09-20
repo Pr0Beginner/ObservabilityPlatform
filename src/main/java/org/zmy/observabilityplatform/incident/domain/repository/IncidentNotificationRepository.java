@@ -16,4 +16,6 @@ public interface IncidentNotificationRepository {
     Mono<Boolean> complete(IncidentNotification notification, String owner);
 
     Flux<IncidentNotification> findByIncidentId(String incidentId, int limit);
+
+    Mono<Long> deleteTerminalBefore(Instant cutoff, int limit);
 }

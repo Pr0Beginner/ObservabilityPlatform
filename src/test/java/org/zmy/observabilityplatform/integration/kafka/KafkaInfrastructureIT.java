@@ -29,9 +29,14 @@ import org.zmy.observabilityplatform.logging.domain.model.RawLogRecord;
 import org.zmy.observabilityplatform.logging.infrastructure.messaging.KafkaRawLogBatchPublisher;
 import org.zmy.observabilityplatform.logging.interfaces.messaging.RawLogBatchConsumer;
 import org.zmy.observabilityplatform.shared.exception.RetryableDependencyException;
+import org.zmy.observabilityplatform.shared.application.query.PageResult;
+import org.zmy.observabilityplatform.shared.messaging.application.query.DeadLetterQueryRepository;
+import org.zmy.observabilityplatform.shared.messaging.application.query.DeadLetterSearchQuery;
 import org.zmy.observabilityplatform.shared.messaging.application.service.DeadLetterService;
 import org.zmy.observabilityplatform.shared.messaging.domain.model.DeadLetterMessage;
+import org.zmy.observabilityplatform.shared.messaging.domain.model.DeadLetterReplayAttempt;
 import org.zmy.observabilityplatform.shared.messaging.domain.repository.DeadLetterRepository;
+import org.zmy.observabilityplatform.shared.messaging.domain.repository.DeadLetterReplayAttemptRepository;
 import org.zmy.observabilityplatform.shared.messaging.infrastructure.publisher.KafkaDeadLetterReplayPublisher;
 import org.zmy.observabilityplatform.shared.messaging.interfaces.kafka.KafkaDeadLetterConsumer;
 import reactor.core.publisher.Flux;
@@ -205,8 +210,10 @@ class KafkaInfrastructureIT {
         }
     }
 
-    static final class ToggleDeadLetterRepository implements DeadLetterRepository {
+    static final class ToggleDeadLetterRepository implements DeadLetterRepository, DeadLetterQueryRepository,
+            DeadLetterReplayAttemptRepository {
         private final Map<String, DeadLetterMessage> messages = new ConcurrentHashMap<>();
+        private final Map<String, DeadLetterReplayAttempt> replayAttempts = new ConcurrentHashMap<>();
         private final AtomicBoolean failCaptures = new AtomicBoolean();
 
         @Override
@@ -231,10 +238,78 @@ class KafkaInfrastructureIT {
         }
 
         @Override
-        public Flux<DeadLetterMessage> findAll(int limit) {
-            return Flux.fromStream(messages.values().stream()
+        public synchronized Mono<DeadLetterMessage> claimForReplay(String id, String owner,
+                                                                   Instant now, Instant leaseUntil) {
+            DeadLetterMessage message = messages.get(id);
+            if (message == null || message.getReplayedAt() != null) {
+                return Mono.empty();
+            }
+            return Mono.just(message);
+        }
+
+        @Override
+        public synchronized Mono<DeadLetterMessage> completeReplay(String id, String owner, Instant replayedAt) {
+            DeadLetterMessage message = messages.get(id);
+            if (message == null || message.getReplayedAt() != null) {
+                return Mono.empty();
+            }
+            DeadLetterMessage replayed = message.replayed(replayedAt);
+            messages.put(id, replayed);
+            return Mono.just(replayed);
+        }
+
+        @Override
+        public Mono<Boolean> releaseReplay(String id, String owner) {
+            return Mono.just(true);
+        }
+
+        @Override
+        public Mono<PageResult<DeadLetterMessage>> search(DeadLetterSearchQuery query) {
+            List<DeadLetterMessage> matches = messages.values().stream()
+                    .filter(message -> query.getTopic() == null
+                            || query.getTopic().equals(message.getOriginalTopic()))
+                    .filter(message -> query.getStatus() == null || query.getStatus() == message.getStatus())
+                    .filter(message -> query.getFailureType() == null
+                            || query.getFailureType().equals(message.getFailureType()))
                     .sorted(Comparator.comparing(DeadLetterMessage::getFailedAt).reversed())
+                    .toList();
+            List<DeadLetterMessage> items = matches.stream().skip(query.offset()).limit(query.getSize()).toList();
+            return Mono.just(PageResult.of(items, query.getPage(), query.getSize(), matches.size()));
+        }
+
+        @Override
+        public Mono<DeadLetterReplayAttempt> save(DeadLetterReplayAttempt attempt) {
+            replayAttempts.put(attempt.getId(), attempt);
+            return Mono.just(attempt);
+        }
+
+        @Override
+        public Flux<DeadLetterReplayAttempt> findByDeadLetterId(String deadLetterId, int limit) {
+            return Flux.fromStream(replayAttempts.values().stream()
+                    .filter(attempt -> attempt.getDeadLetterId().equals(deadLetterId))
+                    .sorted(Comparator.comparing(DeadLetterReplayAttempt::getStartedAt).reversed())
                     .limit(limit));
+        }
+
+        @Override
+        public Mono<Long> deleteReplayedBefore(Instant cutoff, int limit) {
+            return deleteBefore(cutoff, limit, true);
+        }
+
+        @Override
+        public Mono<Long> deleteUnreplayedBefore(Instant cutoff, Instant now, int limit) {
+            return deleteBefore(cutoff, limit, false);
+        }
+
+        private Mono<Long> deleteBefore(Instant cutoff, int limit, boolean replayed) {
+            long deleted = messages.entrySet().stream()
+                    .filter(entry -> (entry.getValue().getReplayedAt() != null) == replayed)
+                    .filter(entry -> (replayed ? entry.getValue().getReplayedAt() : entry.getValue().getFailedAt())
+                            .isBefore(cutoff))
+                    .limit(limit)
+                    .filter(entry -> messages.remove(entry.getKey(), entry.getValue()))
+                    .count();
+            return Mono.just(deleted);
         }
 
         List<DeadLetterMessage> all() {
@@ -254,6 +329,7 @@ class KafkaInfrastructureIT {
         void clear() {
             failCaptures.set(false);
             messages.clear();
+            replayAttempts.clear();
         }
     }
 

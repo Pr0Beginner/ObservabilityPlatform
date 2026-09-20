@@ -35,14 +35,48 @@ server:
 
 # Spring Boot Actuator 运维端点配置。
 management:
+  prometheus:
+    metrics:
+      export:
+        # 显式启用 Prometheus MeterRegistry；仅暴露端点不会自动创建该 Registry。
+        enabled: true
   endpoints:
     web:
       exposure:
         # 对外暴露健康检查、应用信息和 Prometheus 指标。
         include: health,info,prometheus
+  metrics:
+    tags:
+      # 为所有指标添加稳定的应用标签，便于同一 Prometheus 中区分不同系统。
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        # 为 HTTP 请求生成耗时直方图，支持 Prometheus 计算接口 P95、P99 延迟。
+        http.server.requests: true
+      slo:
+        # 为 HTTP 请求生成固定耗时桶，用于告警和服务等级目标统计。
+        http.server.requests: 100ms,500ms,1s,3s
 
 # 平台业务配置。
 app:
+  # REST API 身份认证与角色授权配置。
+  security:
+    # 生产环境应保持开启；仅无安全边界的本地测试可关闭。
+    enabled: ${SECURITY_ENABLED:true}
+    # 只读账号只能查询日志、链路、事件、诊断和死信。
+    read-only:
+      username: ${SECURITY_READ_ONLY_USERNAME:viewer}
+      # 默认密码仅供本地启动，部署时必须通过环境变量替换。
+      password: ${SECURITY_READ_ONLY_PASSWORD:viewer-local}
+    # 运维账号可接入日志并处理事件、诊断和死信。
+    operator:
+      username: ${SECURITY_OPERATOR_USERNAME:operator}
+      password: ${SECURITY_OPERATOR_PASSWORD:operator-local}
+    # 管理员可管理异常策略、查看审计记录和访问管理指标。
+    admin:
+      username: ${SECURITY_ADMIN_USERNAME:admin}
+      password: ${SECURITY_ADMIN_PASSWORD:admin-local}
+
   # 基础设施适配器选择。
   adapters:
     # local：内存存储和进程内调用，适合开发测试；external：使用 Kafka、MySQL 和 Elasticsearch。
@@ -79,6 +113,36 @@ app:
     retry-delay-ms: ${NOTIFICATION_RETRY_DELAY_MS:60000}
     # 实例领取一条待发送通知后的独占时长，超时后允许其他实例接管，单位为秒。
     lease-seconds: ${NOTIFICATION_LEASE_SECONDS:120}
+    # 单条通知允许的最大投递次数；耗尽后进入 EXHAUSTED，等待运维查询并按保留策略清理。
+    max-attempts: ${NOTIFICATION_MAX_ATTEMPTS:5}
+
+  # 死信人工重放配置。
+  dead-letter:
+    # 单个实例领取死信后的独占时长；实例宕机或超时后其他实例可重新领取，单位为秒。
+    replay-lease-seconds: ${DEAD_LETTER_REPLAY_LEASE_SECONDS:120}
+
+  # MySQL 中高增长运行数据的保留与小批次清理配置。
+  retention:
+    # 是否启用定时清理；关闭后所有下列保留规则均不执行。
+    enabled: ${RETENTION_ENABLED:true}
+    # 清理任务 Cron，默认每小时第 15 分钟执行。
+    cleanup-cron: ${RETENTION_CLEANUP_CRON:0 15 * * * *}
+    # 指标窗口和对应 Trace 样本的基础保留天数。
+    metric-window-days: ${RETENTION_METRIC_WINDOW_DAYS:7}
+    # 在最长异常策略同比周期之外额外保留的安全时间，避免边界窗口提前删除。
+    metric-baseline-safety-hours: ${RETENTION_METRIC_BASELINE_SAFETY_HOURS:24}
+    # 已发送或已耗尽通知的保留天数；仍可重试的通知不会被清理。
+    notification-days: ${RETENTION_NOTIFICATION_DAYS:90}
+    # 已成功重放死信的保留天数。
+    replayed-dead-letter-days: ${RETENTION_REPLAYED_DEAD_LETTER_DAYS:30}
+    # 长期未处理死信的保留天数；到期后即使未重放也会删除，应按业务审计要求调整。
+    unresolved-dead-letter-days: ${RETENTION_UNRESOLVED_DEAD_LETTER_DAYS:180}
+    # 人工操作和权限拒绝审计记录的保留天数，应按组织合规要求调整。
+    audit-days: ${RETENTION_AUDIT_DAYS:365}
+    # 单条 DELETE 最多删除的记录数，限制事务规模和锁持有时间。
+    batch-size: ${RETENTION_BATCH_SIZE:500}
+    # 单个数据类型每轮最多执行的批次数，限制一次调度的工作量。
+    max-batches-per-run: ${RETENTION_MAX_BATCHES_PER_RUN:20}
 
   # Incident 指标窗口和检测任务调度配置。
   # 业务阈值、同比周期、恢复窗口及启停状态由异常策略 API 管理，并持久化到 MySQL。

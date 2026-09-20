@@ -15,6 +15,7 @@ import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.zmy.observabilityplatform.support.AuditTestFixture.auditTrail;
 
 class AnomalyPolicyServiceTest {
     private static final Instant NOW = Instant.parse("2026-09-20T10:00:00Z");
@@ -41,8 +42,9 @@ class AnomalyPolicyServiceTest {
     @Test
     void createsAndUpdatesWithScopeAndVersionProtection() {
         InMemoryAnomalyPolicyRepository repository = new InMemoryAnomalyPolicyRepository();
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         AnomalyPolicyManagementService service = new AnomalyPolicyManagementService(
-                repository, Clock.fixed(NOW, ZoneOffset.UTC));
+                repository, clock, auditTrail(clock));
         CreateAnomalyPolicyCommand create = createCommand("Orders", AnomalyPolicyScope.SERVICE,
                 "orders", "prod", null, true);
 

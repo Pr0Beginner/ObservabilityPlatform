@@ -1,24 +1,30 @@
 package org.zmy.observabilityplatform.incident.interfaces.rest.controller;
 
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.RestController;
+import org.zmy.observabilityplatform.incident.application.query.IncidentSearchQuery;
 import org.zmy.observabilityplatform.incident.application.service.IncidentManagementService;
 import org.zmy.observabilityplatform.incident.application.service.IncidentNotificationService;
-import org.zmy.observabilityplatform.incident.interfaces.rest.request.AssignIncidentRequest;
-import org.zmy.observabilityplatform.incident.interfaces.rest.request.TransitionIncidentRequest;
-import org.springframework.web.bind.annotation.RestController;
 import org.zmy.observabilityplatform.incident.application.service.IncidentQueryService;
 import org.zmy.observabilityplatform.incident.application.service.IncidentTraceQueryService;
-import org.zmy.observabilityplatform.incident.interfaces.rest.response.IncidentResponse;
+import org.zmy.observabilityplatform.incident.domain.model.IncidentStatus;
+import org.zmy.observabilityplatform.incident.domain.model.IncidentType;
+import org.zmy.observabilityplatform.incident.interfaces.rest.request.AssignIncidentRequest;
+import org.zmy.observabilityplatform.incident.interfaces.rest.request.TransitionIncidentRequest;
 import org.zmy.observabilityplatform.incident.interfaces.rest.response.IncidentNotificationResponse;
+import org.zmy.observabilityplatform.incident.interfaces.rest.response.IncidentResponse;
 import org.zmy.observabilityplatform.logging.interfaces.rest.response.TraceResponse;
+import org.zmy.observabilityplatform.shared.interfaces.rest.PageResponse;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
+import java.time.Instant;
 
 @RestController
 @RequestMapping("/api/v1/incidents")
@@ -41,8 +47,19 @@ public class IncidentController {
      * 查询最近产生的事件列表。
      */
     @GetMapping
-    public Flux<IncidentResponse> findAll() {
-        return service.findAll().map(IncidentResponse::from);
+    public Mono<PageResponse<IncidentResponse>> search(
+            @RequestParam(required = false) IncidentStatus status,
+            @RequestParam(required = false) IncidentType type,
+            @RequestParam(required = false) String service,
+            @RequestParam(required = false) String environment,
+            @RequestParam(required = false) String assignee,
+            @RequestParam(required = false) Instant startedFrom,
+            @RequestParam(required = false) Instant startedTo,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        IncidentSearchQuery query = new IncidentSearchQuery(status, type, service, environment, assignee,
+                startedFrom, startedTo, page, size);
+        return this.service.search(query).map(result -> PageResponse.from(result, IncidentResponse::from));
     }
 
     /**

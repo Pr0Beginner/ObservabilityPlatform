@@ -9,6 +9,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -52,6 +53,20 @@ public class InMemoryMetricWindowRepository implements MetricWindowRepository {
                 .map(Map.Entry::getValue)
                 .filter(entry -> entry.windowStart.equals(windowStart))
                 .map(StoredWindow::toMetricWindow);
+    }
+
+    @Override
+    public Mono<Long> deleteBefore(Instant cutoff, int limit) {
+        if (limit < 1) {
+            return Mono.error(new IllegalArgumentException("limit must be positive"));
+        }
+        long deleted = values.entrySet().stream()
+                .filter(entry -> entry.getValue().windowStart.isBefore(cutoff))
+                .sorted(Comparator.comparing(entry -> entry.getValue().windowStart))
+                .limit(limit)
+                .filter(entry -> values.remove(entry.getKey(), entry.getValue()))
+                .count();
+        return Mono.just(deleted);
     }
 
     private String identity(MetricKey key, Instant windowStart) {

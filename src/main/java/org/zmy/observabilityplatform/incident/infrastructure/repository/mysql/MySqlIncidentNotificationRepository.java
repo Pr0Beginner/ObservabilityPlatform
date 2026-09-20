@@ -106,6 +106,22 @@ public class MySqlIncidentNotificationRepository implements IncidentNotification
                 .map((row, metadata) -> map(row)).all();
     }
 
+    @Override
+    public Mono<Long> deleteTerminalBefore(Instant cutoff, int limit) {
+        if (limit < 1) {
+            return Mono.error(new IllegalArgumentException("limit must be positive"));
+        }
+        return databaseClient.sql("""
+                        DELETE FROM incident_notifications
+                        WHERE status IN ('SENT', 'EXHAUSTED') AND updated_at < :cutoff
+                        ORDER BY updated_at ASC
+                        LIMIT :limit
+                        """)
+                .bind("cutoff", toDatabaseTime(cutoff))
+                .bind("limit", limit)
+                .fetch().rowsUpdated();
+    }
+
     private IncidentNotification map(Row row) {
         return IncidentNotification.restore(row.get("id", String.class), row.get("notification_key", String.class),
                 row.get("incident_id", String.class),

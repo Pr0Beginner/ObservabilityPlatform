@@ -14,6 +14,8 @@ public class DeadLetterMessageResponse {
     private String id;
     private String originalTopic;
     private String messageKey;
+    private String status;
+    private String failureType;
     private String failureReason;
     private int sourcePartition;
     private long sourceOffset;
@@ -22,7 +24,8 @@ public class DeadLetterMessageResponse {
 
     public static DeadLetterMessageResponse from(DeadLetterMessage message) {
         return new DeadLetterMessageResponse(message.getId(), message.getOriginalTopic(), message.getMessageKey(),
-                message.getFailureReason(), message.getSourcePartition(), message.getSourceOffset(),
+                message.getStatus().name(), message.getFailureType(), message.getFailureReason(),
+                message.getSourcePartition(), message.getSourceOffset(),
                 message.getFailedAt(), message.getReplayedAt());
     }
 }

@@ -5,6 +5,7 @@ import org.zmy.observabilityplatform.incident.application.notification.IncidentN
 import org.zmy.observabilityplatform.incident.domain.model.AnomalyPolicyReference;
 import org.zmy.observabilityplatform.incident.domain.model.Incident;
 import org.zmy.observabilityplatform.incident.domain.model.IncidentNotification;
+import org.zmy.observabilityplatform.incident.domain.model.NotificationStatus;
 import org.zmy.observabilityplatform.incident.domain.model.NotificationType;
 import org.zmy.observabilityplatform.incident.infrastructure.repository.memory.InMemoryIncidentNotificationRepository;
 import org.zmy.observabilityplatform.incident.infrastructure.repository.memory.InMemoryIncidentRepository;
@@ -30,7 +31,7 @@ class IncidentNotificationServiceTest {
         AtomicInteger deliveries = new AtomicInteger();
         IncidentNotifier notifier = (value, type) -> Mono.fromRunnable(deliveries::incrementAndGet);
         IncidentNotificationService service = new IncidentNotificationService(
-                new InMemoryIncidentNotificationRepository(), incidents, notifier, clock, 120);
+                new InMemoryIncidentNotificationRepository(), incidents, notifier, clock, 120, 5);
 
         service.notify(incident, NotificationType.OPENED).block();
         service.notify(incident, NotificationType.OPENED).block();
@@ -52,9 +53,9 @@ class IncidentNotificationServiceTest {
         AtomicInteger deliveries = new AtomicInteger();
         IncidentNotifier notifier = (value, notification) -> Mono.fromRunnable(deliveries::incrementAndGet);
         IncidentNotificationService first = new IncidentNotificationService(
-                notifications, incidents, notifier, clock, 120);
+                notifications, incidents, notifier, clock, 120, 5);
         IncidentNotificationService second = new IncidentNotificationService(
-                notifications, incidents, notifier, clock, 120);
+                notifications, incidents, notifier, clock, 120, 5);
 
         Mono.when(
                 Mono.defer(() -> first.retry(10)).subscribeOn(Schedulers.parallel()),
@@ -87,5 +88,32 @@ class IncidentNotificationServiceTest {
         assertThat(takeover.getAttempts()).isEqualTo(2);
         assertThat(repository.complete(firstClaim.sent(now.plusSeconds(62)), "worker-1").block()).isFalse();
         assertThat(repository.complete(takeover.sent(now.plusSeconds(63)), "worker-2").block()).isTrue();
+    }
+
+    @Test
+    void stopsRetryingAfterTheConfiguredMaximumAttempts() {
+        Instant now = Instant.parse("2026-09-19T12:00:00Z");
+        Clock clock = Clock.fixed(now, ZoneOffset.UTC);
+        InMemoryIncidentRepository incidents = new InMemoryIncidentRepository();
+        Incident incident = incidents.save(Incident.open("incident-1", "dedup-1", "orders", "prod", "fp-1",
+                "ERROR", 3, now.minusSeconds(60), now,
+                new AnomalyPolicyReference("global-default", 1))).block();
+        InMemoryIncidentNotificationRepository notifications = new InMemoryIncidentNotificationRepository();
+        AtomicInteger deliveries = new AtomicInteger();
+        IncidentNotifier notifier = (value, type) -> Mono.defer(() -> {
+            deliveries.incrementAndGet();
+            return Mono.error(new IllegalStateException("webhook unavailable"));
+        });
+        IncidentNotificationService service = new IncidentNotificationService(
+                notifications, incidents, notifier, clock, 120, 2);
+
+        service.notify(incident, NotificationType.OPENED).block();
+        service.retry(10).block();
+        service.retry(10).block();
+
+        IncidentNotification notification = notifications.findByIncidentId(incident.getId(), 10).single().block();
+        assertThat(deliveries).hasValue(2);
+        assertThat(notification.getAttempts()).isEqualTo(2);
+        assertThat(notification.getStatus()).isEqualTo(NotificationStatus.EXHAUSTED);
     }
 }

@@ -20,6 +20,7 @@ public final class DeadLetterMessage {
     private final String originalTopic;
     private final String messageKey;
     private final String payload;
+    private final String failureType;
     private final String failureReason;
     private final int sourcePartition;
     private final long sourceOffset;
@@ -27,12 +28,13 @@ public final class DeadLetterMessage {
     private final Instant replayedAt;
 
     private DeadLetterMessage(String id, String originalTopic, String messageKey, String payload,
-                              String failureReason, int sourcePartition, long sourceOffset,
+                              String failureType, String failureReason, int sourcePartition, long sourceOffset,
                               Instant failedAt, Instant replayedAt) {
         this.id = requireText(id, "id");
         this.originalTopic = requireText(originalTopic, "originalTopic");
         this.messageKey = messageKey;
         this.payload = payload == null ? "" : payload;
+        this.failureType = requireText(failureType, "failureType");
         this.failureReason = requireText(failureReason, "failureReason");
         this.sourcePartition = sourcePartition;
         this.sourceOffset = sourceOffset;
@@ -43,15 +45,30 @@ public final class DeadLetterMessage {
     public static DeadLetterMessage captured(String originalTopic, String messageKey, String payload,
                                              String failureReason, int sourcePartition, long sourceOffset,
                                              Instant failedAt) {
+        return captured(originalTopic, messageKey, payload, "UNKNOWN", failureReason,
+                sourcePartition, sourceOffset, failedAt);
+    }
+
+    public static DeadLetterMessage captured(String originalTopic, String messageKey, String payload,
+                                             String failureType, String failureReason,
+                                             int sourcePartition, long sourceOffset, Instant failedAt) {
         String id = stableId(originalTopic, sourcePartition, sourceOffset);
-        return new DeadLetterMessage(id, originalTopic, messageKey, payload, failureReason,
+        return new DeadLetterMessage(id, originalTopic, messageKey, payload, failureType, failureReason,
                 sourcePartition, sourceOffset, failedAt, null);
     }
 
     public static DeadLetterMessage restore(String id, String originalTopic, String messageKey, String payload,
                                             String failureReason, int sourcePartition, long sourceOffset,
                                             Instant failedAt, Instant replayedAt) {
-        return new DeadLetterMessage(id, originalTopic, messageKey, payload, failureReason,
+        return restore(id, originalTopic, messageKey, payload, "UNKNOWN", failureReason,
+                sourcePartition, sourceOffset, failedAt, replayedAt);
+    }
+
+    public static DeadLetterMessage restore(String id, String originalTopic, String messageKey, String payload,
+                                            String failureType, String failureReason,
+                                            int sourcePartition, long sourceOffset,
+                                            Instant failedAt, Instant replayedAt) {
+        return new DeadLetterMessage(id, originalTopic, messageKey, payload, failureType, failureReason,
                 sourcePartition, sourceOffset, failedAt, replayedAt);
     }
 
@@ -59,8 +76,12 @@ public final class DeadLetterMessage {
         if (replayedAt != null) {
             throw new BusinessConflictException("Dead-letter message has already been replayed: " + id);
         }
-        return new DeadLetterMessage(id, originalTopic, messageKey, payload, failureReason,
+        return new DeadLetterMessage(id, originalTopic, messageKey, payload, failureType, failureReason,
                 sourcePartition, sourceOffset, failedAt, now);
+    }
+
+    public DeadLetterStatus getStatus() {
+        return replayedAt == null ? DeadLetterStatus.UNRESOLVED : DeadLetterStatus.REPLAYED;
     }
 
     private static String requireText(String value, String field) {

@@ -3,6 +3,7 @@ package org.zmy.observabilityplatform.incident.infrastructure.repository.memory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Repository;
 import org.zmy.observabilityplatform.incident.domain.model.IncidentNotification;
+import org.zmy.observabilityplatform.incident.domain.model.NotificationStatus;
 import org.zmy.observabilityplatform.incident.domain.repository.IncidentNotificationRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -69,5 +70,25 @@ public class InMemoryIncidentNotificationRepository implements IncidentNotificat
                 .filter(value -> value.getIncidentId().equals(incidentId))
                 .sort((left, right) -> right.getCreatedAt().compareTo(left.getCreatedAt()))
                 .take(limit);
+    }
+
+    @Override
+    public Mono<Long> deleteTerminalBefore(Instant cutoff, int limit) {
+        if (limit < 1) {
+            return Mono.error(new IllegalArgumentException("limit must be positive"));
+        }
+        long deleted = byKey.entrySet().stream()
+                .filter(entry -> terminal(entry.getValue()))
+                .filter(entry -> entry.getValue().getUpdatedAt().isBefore(cutoff))
+                .sorted(Comparator.comparing(entry -> entry.getValue().getUpdatedAt()))
+                .limit(limit)
+                .filter(entry -> byKey.remove(entry.getKey(), entry.getValue()))
+                .count();
+        return Mono.just(deleted);
+    }
+
+    private boolean terminal(IncidentNotification notification) {
+        return notification.getStatus() == NotificationStatus.SENT
+                || notification.getStatus() == NotificationStatus.EXHAUSTED;
     }
 }

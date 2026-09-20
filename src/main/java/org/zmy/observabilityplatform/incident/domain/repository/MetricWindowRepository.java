@@ -16,4 +16,6 @@ public interface MetricWindowRepository {
     Mono<MetricWindow> find(MetricKey key, Instant windowStart);
 
     Flux<MetricWindow> findByWindow(Instant windowStart);
+
+    Mono<Long> deleteBefore(Instant cutoff, int limit);
 }

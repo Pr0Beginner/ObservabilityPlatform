@@ -77,6 +77,13 @@ services:
       ELASTICSEARCH_DATA_STREAM: logs-observability-default
       ELASTICSEARCH_RETENTION: 30d
       GRPC_PORT: 9090
+      # 以下凭据仅用于本地 Compose；真实环境必须从密钥管理系统注入。
+      SECURITY_READ_ONLY_USERNAME: viewer
+      SECURITY_READ_ONLY_PASSWORD: viewer-local
+      SECURITY_OPERATOR_USERNAME: operator
+      SECURITY_OPERATOR_PASSWORD: operator-local
+      SECURITY_ADMIN_USERNAME: admin
+      SECURITY_ADMIN_PASSWORD: admin-local
     ports:
       - "8080:8080"
       - "9090:9090"

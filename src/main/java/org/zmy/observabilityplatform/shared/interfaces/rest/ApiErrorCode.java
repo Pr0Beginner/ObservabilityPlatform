@@ -5,6 +5,8 @@ import org.springframework.http.HttpStatus;
 
 @Getter
 public enum ApiErrorCode {
+    AUTHENTICATION_REQUIRED(HttpStatus.UNAUTHORIZED, false),
+    ACCESS_DENIED(HttpStatus.FORBIDDEN, false),
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, false),
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, false),
     BUSINESS_CONFLICT(HttpStatus.CONFLICT, false),

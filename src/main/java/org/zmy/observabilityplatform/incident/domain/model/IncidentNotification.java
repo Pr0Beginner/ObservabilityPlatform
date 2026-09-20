@@ -91,9 +91,14 @@ public final class IncidentNotification {
                 attempts, createdAt, now, null, null, null);
     }
 
-    public IncidentNotification failed(String error, Instant now) {
+    public IncidentNotification deliveryFailed(String error, int maxAttempts, Instant now) {
+        if (maxAttempts < 1) {
+            throw new IllegalArgumentException("maxAttempts must be positive");
+        }
         requireSending();
-        return new IncidentNotification(id, notificationKey, incidentId, type, NotificationStatus.FAILED,
+        NotificationStatus nextStatus = attempts >= maxAttempts
+                ? NotificationStatus.EXHAUSTED : NotificationStatus.FAILED;
+        return new IncidentNotification(id, notificationKey, incidentId, type, nextStatus,
                 attempts, createdAt, now, requireText(error, "error"), null, null);
     }
 

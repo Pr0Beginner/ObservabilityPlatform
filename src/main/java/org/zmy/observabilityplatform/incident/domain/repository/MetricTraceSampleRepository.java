@@ -9,4 +9,6 @@ public interface MetricTraceSampleRepository {
     Mono<Void> recordIfAbsent(MetricKey key, Instant windowStart, String traceId);
 
     Mono<String> findTraceId(MetricKey key, Instant windowStart);
+
+    Mono<Long> deleteBefore(Instant cutoff, int limit);
 }

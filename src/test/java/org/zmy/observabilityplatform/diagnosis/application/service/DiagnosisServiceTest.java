@@ -22,6 +22,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.zmy.observabilityplatform.support.AuditTestFixture.auditTrail;
 
 class DiagnosisServiceTest {
     private static final Instant NOW = Instant.parse("2026-09-19T12:00:00Z");
@@ -35,8 +36,9 @@ class DiagnosisServiceTest {
         incidents.save(Incident.open("incident-1", "dedup-1", "orders", "prod", "fp-1",
                 "ERROR", 3, NOW.minusSeconds(60), NOW.minusSeconds(30),
                 new AnomalyPolicyReference("global-default", 1))).block();
-        service = new DiagnosisService(repository, new IncidentQueryService(incidents),
-                new LocalDiagnosisRequestedPublisher(), Clock.fixed(NOW, ZoneOffset.UTC));
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        service = new DiagnosisService(repository, new IncidentQueryService(incidents, incidents),
+                new LocalDiagnosisRequestedPublisher(), clock, auditTrail(clock));
     }
 
     @Test

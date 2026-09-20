@@ -30,9 +30,12 @@ public class KafkaDeadLetterConsumer {
         String originalTopic = record.topic().endsWith(dltSuffix)
                 ? record.topic().substring(0, record.topic().length() - dltSuffix.length()) : record.topic();
         Header reasonHeader = record.headers().lastHeader(KafkaHeaders.DLT_EXCEPTION_MESSAGE);
+        Header typeHeader = record.headers().lastHeader(KafkaHeaders.DLT_EXCEPTION_FQCN);
         String reason = reasonHeader == null ? "Kafka listener failed"
                 : new String(reasonHeader.value(), StandardCharsets.UTF_8);
-        repository.saveIfAbsent(DeadLetterMessage.captured(originalTopic, record.key(), record.value(), reason,
-                record.partition(), record.offset(), clock.instant())).block();
+        String failureType = typeHeader == null ? "UNKNOWN"
+                : new String(typeHeader.value(), StandardCharsets.UTF_8);
+        repository.saveIfAbsent(DeadLetterMessage.captured(originalTopic, record.key(), record.value(), failureType,
+                reason, record.partition(), record.offset(), clock.instant())).block();
     }
 }

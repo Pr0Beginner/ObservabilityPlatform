@@ -5,11 +5,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.core.ParameterizedTypeReference;
 import org.zmy.observabilityplatform.diagnosis.application.service.DiagnosisService;
 import org.zmy.observabilityplatform.diagnosis.domain.event.DiagnosisCompletedEvent;
 import org.zmy.observabilityplatform.diagnosis.interfaces.rest.response.DiagnosisTaskResponse;
 import org.zmy.observabilityplatform.incident.interfaces.rest.response.IncidentResponse;
 import org.zmy.observabilityplatform.logging.interfaces.rest.response.LogResponse;
+import org.zmy.observabilityplatform.shared.interfaces.rest.PageResponse;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -21,7 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "app.adapters.mode=local",
-        "app.grpc.enabled=false"
+        "app.grpc.enabled=false",
+        "app.security.enabled=false"
 })
 @AutoConfigureWebTestClient
 class ObservabilityPlatformEndToEndTest {
@@ -30,6 +33,17 @@ class ObservabilityPlatformEndToEndTest {
 
     @Autowired
     private DiagnosisService diagnosisService;
+
+    @Test
+    void exposesPrometheusHttpMetrics() {
+        webClient.get().uri("/api/v1/incidents?size=1").exchange().expectStatus().isOk();
+
+        webClient.get().uri("/actuator/prometheus")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .value(body -> assertThat(body).contains("http_server_requests_seconds_count"));
+    }
 
     @Test
     void completesLogToIncidentToDiagnosisReportFlow() {
@@ -73,11 +87,13 @@ class ObservabilityPlatformEndToEndTest {
                 .exchange()
                 .expectStatus().isAccepted();
 
-        List<IncidentResponse> incidents = webClient.get().uri("/api/v1/incidents")
+        PageResponse<IncidentResponse> incidentPage = webClient.get().uri("/api/v1/incidents")
                 .exchange()
                 .expectStatus().isOk()
-                .expectBodyList(IncidentResponse.class)
+                .expectBody(new ParameterizedTypeReference<PageResponse<IncidentResponse>>() { })
                 .returnResult().getResponseBody();
+        assertThat(incidentPage).isNotNull();
+        List<IncidentResponse> incidents = incidentPage.getItems();
         assertThat(incidents).hasSize(1);
         IncidentResponse incident = incidents.get(0);
         assertThat(incident.getService()).isEqualTo("orders-service");

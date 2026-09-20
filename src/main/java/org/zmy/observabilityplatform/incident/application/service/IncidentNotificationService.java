@@ -24,20 +24,23 @@ public class IncidentNotificationService {
     private final IncidentNotifier notifier;
     private final Clock clock;
     private final Duration leaseDuration;
+    private final int maxAttempts;
     private final String workerId = UUID.randomUUID().toString();
 
     public IncidentNotificationService(IncidentNotificationRepository repository,
                                        IncidentRepository incidentRepository,
                                        IncidentNotifier notifier, Clock clock,
-                                       @Value("${app.notification.lease-seconds:120}") long leaseSeconds) {
-        if (leaseSeconds < 1) {
-            throw new IllegalArgumentException("notification leaseSeconds must be positive");
+                                       @Value("${app.notification.lease-seconds:120}") long leaseSeconds,
+                                       @Value("${app.notification.max-attempts:5}") int maxAttempts) {
+        if (leaseSeconds < 1 || maxAttempts < 1) {
+            throw new IllegalArgumentException("notification leaseSeconds and maxAttempts must be positive");
         }
         this.repository = repository;
         this.incidentRepository = incidentRepository;
         this.notifier = notifier;
         this.clock = clock;
         this.leaseDuration = Duration.ofSeconds(leaseSeconds);
+        this.maxAttempts = maxAttempts;
     }
 
     public Mono<Void> notify(Incident incident, NotificationType type) {
@@ -75,7 +78,7 @@ public class IncidentNotificationService {
         return notifier.send(incident, notification)
                 .then(Mono.defer(() -> repository.complete(notification.sent(clock.instant()), workerId)))
                 .onErrorResume(error -> repository.complete(
-                        notification.failed(message(error), clock.instant()), workerId))
+                        notification.deliveryFailed(message(error), maxAttempts, clock.instant()), workerId))
                 .then();
     }
 

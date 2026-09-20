@@ -1,5 +1,6 @@
 package org.zmy.observabilityplatform.integration.mysql;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.r2dbc.spi.ConnectionFactories;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
@@ -12,6 +13,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 import org.zmy.observabilityplatform.incident.application.notification.IncidentNotifier;
+import org.zmy.observabilityplatform.incident.application.query.IncidentSearchQuery;
 import org.zmy.observabilityplatform.incident.application.service.AnomalyEvaluationService;
 import org.zmy.observabilityplatform.incident.application.service.AnomalyPolicyResolver;
 import org.zmy.observabilityplatform.incident.application.service.IncidentLifecycleService;
@@ -35,6 +37,20 @@ import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.My
 import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.MySqlIncidentTraceLinkRepository;
 import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.MySqlMetricTraceSampleRepository;
 import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.MySqlMetricWindowRepository;
+import org.zmy.observabilityplatform.audit.application.query.AuditSearchQuery;
+import org.zmy.observabilityplatform.audit.domain.model.AuditAction;
+import org.zmy.observabilityplatform.audit.domain.model.AuditActor;
+import org.zmy.observabilityplatform.audit.domain.model.AuditOutcome;
+import org.zmy.observabilityplatform.audit.domain.model.AuditRecord;
+import org.zmy.observabilityplatform.audit.domain.model.AuditTargetType;
+import org.zmy.observabilityplatform.audit.infrastructure.repository.mysql.MySqlAuditRepository;
+import org.zmy.observabilityplatform.shared.messaging.domain.model.DeadLetterMessage;
+import org.zmy.observabilityplatform.shared.messaging.domain.model.DeadLetterReplayAttempt;
+import org.zmy.observabilityplatform.shared.messaging.domain.model.DeadLetterStatus;
+import org.zmy.observabilityplatform.shared.messaging.domain.model.ReplayAttemptStatus;
+import org.zmy.observabilityplatform.shared.messaging.application.query.DeadLetterSearchQuery;
+import org.zmy.observabilityplatform.shared.messaging.infrastructure.repository.mysql.MySqlDeadLetterRepository;
+import org.zmy.observabilityplatform.shared.messaging.infrastructure.repository.mysql.MySqlDeadLetterReplayAttemptRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -47,6 +63,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -68,6 +85,10 @@ class MySqlInfrastructureIT {
     private static MySqlIncidentRepository incidentRepository;
     private static IncidentNotificationRepository notificationRepository;
     private static MySqlAnomalyPolicyRepository anomalyPolicyRepository;
+    private static MySqlMetricTraceSampleRepository traceSampleRepository;
+    private static MySqlDeadLetterRepository deadLetterRepository;
+    private static MySqlDeadLetterReplayAttemptRepository replayAttemptRepository;
+    private static MySqlAuditRepository auditRepository;
     private static IncidentLifecycleService lifecycleService;
     private static AnomalyEvaluationService anomalyService;
 
@@ -81,13 +102,15 @@ class MySqlInfrastructureIT {
         incidentRepository = new MySqlIncidentRepository(databaseClient);
         notificationRepository = new MySqlIncidentNotificationRepository(databaseClient);
         anomalyPolicyRepository = new MySqlAnomalyPolicyRepository(databaseClient);
-        MySqlMetricTraceSampleRepository traceSampleRepository =
-                new MySqlMetricTraceSampleRepository(databaseClient);
+        traceSampleRepository = new MySqlMetricTraceSampleRepository(databaseClient);
+        deadLetterRepository = new MySqlDeadLetterRepository(databaseClient);
+        replayAttemptRepository = new MySqlDeadLetterReplayAttemptRepository(databaseClient);
+        auditRepository = new MySqlAuditRepository(databaseClient, new ObjectMapper());
         MySqlIncidentTraceLinkRepository traceLinkRepository =
                 new MySqlIncidentTraceLinkRepository(databaseClient);
         IncidentNotifier notifier = (incident, notification) -> Mono.empty();
         IncidentNotificationService notificationService = new IncidentNotificationService(
-                notificationRepository, incidentRepository, notifier, CLOCK, 120);
+                notificationRepository, incidentRepository, notifier, CLOCK, 120, 5);
         lifecycleService = new IncidentLifecycleService(
                 incidentRepository, notificationService);
         AnomalyPolicyResolver policyResolver = new AnomalyPolicyResolver(anomalyPolicyRepository);
@@ -101,6 +124,7 @@ class MySqlInfrastructureIT {
                 .then(execute("DELETE FROM diagnosis_tasks"))
                 .then(execute("DELETE FROM incident_notifications"))
                 .then(execute("DELETE FROM incident_trace_links"))
+                .then(execute("DELETE FROM audit_records"))
                 .then(execute("DELETE FROM metric_trace_samples"))
                 .then(execute("DELETE FROM metric_windows"))
                 .then(execute("DELETE FROM dead_letter_messages"))
@@ -118,7 +142,32 @@ class MySqlInfrastructureIT {
                 .map((row, metadata) -> row.get("version", String.class))
                 .all().collectList().block(TIMEOUT);
 
-        assertThat(versions).containsExactly("1", "2", "3", "4");
+        assertThat(versions).containsExactly("1", "2", "3", "4", "5", "6", "7");
+
+        List<String> retentionIndexes = databaseClient.sql("""
+                        SELECT index_name FROM information_schema.statistics
+                        WHERE table_schema = DATABASE()
+                          AND index_name IN ('idx_metric_trace_samples_start', 'idx_dead_letter_replayed_at')
+                        ORDER BY index_name
+                        """)
+                .map((row, metadata) -> row.get("index_name", String.class))
+                .all().collectList().block(TIMEOUT);
+        assertThat(retentionIndexes).containsExactly(
+                "idx_dead_letter_replayed_at", "idx_metric_trace_samples_start");
+
+        Long replayAttemptTable = databaseClient.sql("""
+                        SELECT COUNT(*) AS total FROM information_schema.tables
+                        WHERE table_schema = DATABASE() AND table_name = 'dead_letter_replay_attempts'
+                        """)
+                .map((row, metadata) -> row.get("total", Long.class)).one().block(TIMEOUT);
+        assertThat(replayAttemptTable).isEqualTo(1L);
+
+        Long auditTable = databaseClient.sql("""
+                        SELECT COUNT(*) AS total FROM information_schema.tables
+                        WHERE table_schema = DATABASE() AND table_name = 'audit_records'
+                        """)
+                .map((row, metadata) -> row.get("total", Long.class)).one().block(TIMEOUT);
+        assertThat(auditTable).isEqualTo(1L);
     }
 
     @Test
@@ -179,6 +228,27 @@ class MySqlInfrastructureIT {
                 .then().block(TIMEOUT);
 
         assertThat(metricRepository.find(key, window).block(TIMEOUT).getCount()).isEqualTo(50);
+    }
+
+    @Test
+    void persistsAndSearchesStructuredAuditRecords() {
+        AuditRecord record = AuditRecord.create("audit-1",
+                new AuditActor("operator", List.of("OPERATOR")),
+                AuditAction.INCIDENT_ASSIGN, AuditTargetType.INCIDENT, "incident-1",
+                AuditOutcome.SUCCEEDED, "trace-1", CLOCK.instant(),
+                Map.of("assignee", "unassigned"), Map.of("assignee", "alice"), null);
+
+        auditRepository.save(record).block(TIMEOUT);
+        var result = auditRepository.search(new AuditSearchQuery("operator",
+                AuditAction.INCIDENT_ASSIGN, AuditTargetType.INCIDENT, "incident-1",
+                AuditOutcome.SUCCEEDED, CLOCK.instant().minusSeconds(1),
+                CLOCK.instant().plusSeconds(1), 0, 10)).block(TIMEOUT);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getItems()).containsExactly(record);
+        assertThat(result.getTotalElements()).isEqualTo(1);
+        assertThat(auditRepository.deleteBefore(CLOCK.instant().plusSeconds(1), 10).block(TIMEOUT))
+                .isEqualTo(1);
     }
 
     @Test
@@ -267,6 +337,103 @@ class MySqlInfrastructureIT {
         assertThat(claims).hasSize(1);
         assertThat(claims.get(0).getStatus()).isEqualTo(NotificationStatus.SENDING);
         assertThat(claims.get(0).getAttempts()).isEqualTo(1);
+    }
+
+    @Test
+    void deletesExpiredOperationalDataInBoundedBatches() {
+        Instant now = CLOCK.instant();
+        Instant firstExpired = now.minus(Duration.ofDays(10));
+        Instant secondExpired = now.minus(Duration.ofDays(9));
+        Instant recent = now.minus(Duration.ofHours(1));
+        Instant cutoff = now.minus(Duration.ofDays(7));
+        MetricKey key = MetricKey.requestTotal("orders", "prod", "GET /orders");
+        for (Instant window : List.of(firstExpired, secondExpired, recent)) {
+            metricRepository.increment(key, window, 1).block(TIMEOUT);
+            traceSampleRepository.recordIfAbsent(key, window, "trace-" + window).block(TIMEOUT);
+        }
+
+        assertThat(traceSampleRepository.deleteBefore(cutoff, 1).block(TIMEOUT)).isEqualTo(1);
+        assertThat(traceSampleRepository.deleteBefore(cutoff, 10).block(TIMEOUT)).isEqualTo(1);
+        assertThat(metricRepository.deleteBefore(cutoff, 1).block(TIMEOUT)).isEqualTo(1);
+        assertThat(metricRepository.deleteBefore(cutoff, 10).block(TIMEOUT)).isEqualTo(1);
+        assertThat(metricRepository.find(key, recent).block(TIMEOUT)).isNotNull();
+        assertThat(traceSampleRepository.findTraceId(key, recent).block(TIMEOUT)).isNotNull();
+
+        Incident incident = incidentRepository.save(Incident.open(
+                "retention-incident", "retention-dedup", "orders", "prod", "fp-retention",
+                "ERROR", 3, firstExpired, firstExpired,
+                new AnomalyPolicyReference("global-default", 1))).block(TIMEOUT);
+        IncidentNotification sent = IncidentNotification.pending(
+                        "sent-notification", "sent-key", incident.getId(), NotificationType.OPENED, firstExpired)
+                .claim("worker", firstExpired.plusSeconds(120), firstExpired.plusSeconds(1))
+                .sent(firstExpired.plusSeconds(2));
+        IncidentNotification failed = IncidentNotification.pending(
+                        "failed-notification", "failed-key", incident.getId(), NotificationType.OPENED, firstExpired)
+                .claim("worker", firstExpired.plusSeconds(120), firstExpired.plusSeconds(1))
+                .deliveryFailed("temporary", 5, firstExpired.plusSeconds(2));
+        notificationRepository.createIfAbsent(sent).block(TIMEOUT);
+        notificationRepository.createIfAbsent(failed).block(TIMEOUT);
+
+        assertThat(notificationRepository.deleteTerminalBefore(cutoff, 10).block(TIMEOUT)).isEqualTo(1);
+        assertThat(notificationRepository.findByIncidentId(incident.getId(), 10).collectList().block(TIMEOUT))
+                .extracting(IncidentNotification::getNotificationKey)
+                .containsExactly("failed-key");
+
+        DeadLetterMessage replayed = DeadLetterMessage.captured(
+                "logs.raw.v1", "replayed", "{}", "invalid", 0, 1, firstExpired);
+        deadLetterRepository.saveIfAbsent(replayed).block(TIMEOUT);
+        deadLetterRepository.save(replayed.replayed(secondExpired)).block(TIMEOUT);
+        DeadLetterMessage unresolved = DeadLetterMessage.captured(
+                "logs.raw.v1", "unresolved", "{}", "invalid", 0, 2, firstExpired);
+        deadLetterRepository.saveIfAbsent(unresolved).block(TIMEOUT);
+
+        assertThat(deadLetterRepository.deleteReplayedBefore(cutoff, 10).block(TIMEOUT)).isEqualTo(1);
+        assertThat(deadLetterRepository.deleteUnreplayedBefore(cutoff, now, 10).block(TIMEOUT)).isEqualTo(1);
+    }
+
+    @Test
+    void searchesOperationsAndProtectsDeadLetterReplayWithALease() {
+        Instant now = CLOCK.instant();
+        Incident orders = incidentRepository.save(Incident.open(
+                "query-orders", "query-orders-dedup", "orders", "prod", "fp-orders",
+                "ERROR", 3, now.minusSeconds(60), now.minusSeconds(60),
+                new AnomalyPolicyReference("global-default", 1))).block(TIMEOUT);
+        incidentRepository.save(Incident.open(
+                "query-payments", "query-payments-dedup", "payments", "prod", "fp-payments",
+                "ERROR", 3, now.minusSeconds(30), now.minusSeconds(30),
+                new AnomalyPolicyReference("global-default", 1))).block(TIMEOUT);
+
+        var incidentPage = incidentRepository.search(new IncidentSearchQuery(
+                IncidentStatus.OPEN, IncidentType.REPEATED_ERROR, "orders", "prod", "unassigned",
+                now.minus(Duration.ofHours(1)), now, 0, 10)).block(TIMEOUT);
+        assertThat(incidentPage).isNotNull();
+        assertThat(incidentPage.getItems()).containsExactly(orders);
+        assertThat(incidentPage.getTotalElements()).isEqualTo(1);
+
+        DeadLetterMessage message = DeadLetterMessage.captured(
+                "logs.raw.v1", "query-message", "{}", "java.lang.IllegalArgumentException",
+                "invalid payload", 0, 99, now.minusSeconds(10));
+        deadLetterRepository.saveIfAbsent(message).block(TIMEOUT);
+        assertThat(deadLetterRepository.claimForReplay(message.getId(), "worker-1", now,
+                now.plusSeconds(30)).block(TIMEOUT)).isEqualTo(message);
+        assertThat(deadLetterRepository.claimForReplay(message.getId(), "worker-2", now,
+                now.plusSeconds(30)).block(TIMEOUT)).isNull();
+
+        DeadLetterReplayAttempt attempt = DeadLetterReplayAttempt.start(
+                "replay-attempt-1", message.getId(), now);
+        replayAttemptRepository.save(attempt).block(TIMEOUT);
+        DeadLetterMessage replayed = deadLetterRepository.completeReplay(
+                message.getId(), "worker-1", now.plusSeconds(1)).block(TIMEOUT);
+        replayAttemptRepository.save(attempt.succeed(now.plusSeconds(1))).block(TIMEOUT);
+        assertThat(replayed).isNotNull();
+
+        var deadLetterPage = deadLetterRepository.search(new DeadLetterSearchQuery(
+                "logs.raw.v1", DeadLetterStatus.REPLAYED, "java.lang.IllegalArgumentException",
+                now.minus(Duration.ofHours(1)), now, 0, 10)).block(TIMEOUT);
+        assertThat(deadLetterPage).isNotNull();
+        assertThat(deadLetterPage.getItems()).containsExactly(replayed);
+        assertThat(replayAttemptRepository.findByDeadLetterId(message.getId(), 10)
+                .single().block(TIMEOUT).getStatus()).isEqualTo(ReplayAttemptStatus.SUCCEEDED);
     }
 
     private static Flyway migrate(String jdbcUrl, String target) {

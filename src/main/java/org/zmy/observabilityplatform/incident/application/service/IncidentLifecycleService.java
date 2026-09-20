@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import org.zmy.observabilityplatform.incident.domain.model.Incident;
 import org.zmy.observabilityplatform.incident.domain.model.IncidentStatus;
 import org.zmy.observabilityplatform.incident.domain.model.NotificationType;
+import org.zmy.observabilityplatform.incident.application.dto.IncidentChange;
 import org.zmy.observabilityplatform.incident.domain.exception.IncidentVersionConflictException;
 import org.zmy.observabilityplatform.incident.domain.repository.IncidentRepository;
 import org.zmy.observabilityplatform.shared.exception.NotFoundException;
@@ -31,21 +32,28 @@ public class IncidentLifecycleService {
     }
 
     public Mono<Incident> update(String incidentId, UnaryOperator<Incident> operation) {
-        return Mono.defer(() -> update(incidentId, operation, 1));
+        return updateWithChange(incidentId, operation).map(IncidentChange::getAfter);
     }
 
-    private Mono<Incident> update(String incidentId, UnaryOperator<Incident> operation, int attempt) {
+    public Mono<IncidentChange> updateWithChange(String incidentId, UnaryOperator<Incident> operation) {
+        return Mono.defer(() -> updateWithChange(incidentId, operation, 1));
+    }
+
+    private Mono<IncidentChange> updateWithChange(String incidentId, UnaryOperator<Incident> operation,
+                                                  int attempt) {
         return repository.findById(incidentId)
                 .switchIfEmpty(Mono.error(new NotFoundException("Incident not found: " + incidentId)))
                 .flatMap(before -> {
                     Incident after = operation.apply(before);
                     if (before.equals(after)) {
-                        return Mono.just(before);
+                        return Mono.just(new IncidentChange(before, before));
                     }
-                    return repository.save(after).flatMap(saved -> notifyTransition(before, saved));
+                    return repository.save(after)
+                            .flatMap(saved -> notifyTransition(before, saved))
+                            .map(saved -> new IncidentChange(before, saved));
                 })
                 .onErrorResume(IncidentVersionConflictException.class, error -> attempt < MAX_UPDATE_ATTEMPTS
-                        ? update(incidentId, operation, attempt + 1)
+                        ? updateWithChange(incidentId, operation, attempt + 1)
                         : Mono.error(error));
     }
 

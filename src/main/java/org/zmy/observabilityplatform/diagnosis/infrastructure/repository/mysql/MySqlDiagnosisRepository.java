@@ -71,6 +71,18 @@ public class MySqlDiagnosisRepository implements DiagnosisRepository {
     }
 
     @Override
+    public Flux<DiagnosisTask> findByIncidentId(String incidentId, int limit) {
+        return databaseClient.sql("""
+                        SELECT * FROM diagnosis_tasks
+                        WHERE incident_id = :incidentId
+                        ORDER BY version DESC LIMIT :limit
+                        """)
+                .bind("incidentId", incidentId)
+                .bind("limit", limit)
+                .map((row, metadata) -> mapTask(row)).all();
+    }
+
+    @Override
     public Mono<DiagnosisReport> saveReport(DiagnosisReport report) {
         try {
             return databaseClient.sql("""

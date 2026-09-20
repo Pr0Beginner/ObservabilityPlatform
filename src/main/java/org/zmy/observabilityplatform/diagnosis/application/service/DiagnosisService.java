@@ -1,6 +1,12 @@
 package org.zmy.observabilityplatform.diagnosis.application.service;
 
 import org.springframework.stereotype.Service;
+import org.zmy.observabilityplatform.audit.application.service.AuditOperation;
+import org.zmy.observabilityplatform.audit.application.service.AuditResult;
+import org.zmy.observabilityplatform.audit.application.service.AuditState;
+import org.zmy.observabilityplatform.audit.application.service.AuditTrailService;
+import org.zmy.observabilityplatform.audit.domain.model.AuditAction;
+import org.zmy.observabilityplatform.audit.domain.model.AuditTargetType;
 import org.zmy.observabilityplatform.diagnosis.application.dto.DiagnosisReportView;
 import org.zmy.observabilityplatform.diagnosis.application.dto.DiagnosisTaskView;
 import org.zmy.observabilityplatform.diagnosis.application.dto.DiagnosisView;
@@ -28,18 +34,29 @@ public class DiagnosisService {
     private final IncidentQueryService incidentQueryService;
     private final DiagnosisRequestedPublisher eventPublisher;
     private final Clock clock;
+    private final AuditTrailService auditTrailService;
 
     public DiagnosisService(DiagnosisRepository diagnosisRepository,
                             IncidentQueryService incidentQueryService,
                             DiagnosisRequestedPublisher eventPublisher,
-                            Clock clock) {
+                            Clock clock,
+                            AuditTrailService auditTrailService) {
         this.diagnosisRepository = diagnosisRepository;
         this.incidentQueryService = incidentQueryService;
         this.eventPublisher = eventPublisher;
         this.clock = clock;
+        this.auditTrailService = auditTrailService;
     }
 
     public Mono<DiagnosisTaskView> create(String incidentId) {
+        AuditOperation operation = new AuditOperation(AuditAction.DIAGNOSIS_CREATE,
+                AuditTargetType.INCIDENT, incidentId);
+        return auditTrailService.audit(operation, () -> createTask(incidentId),
+                        task -> AuditResult.created(incidentId, snapshot(task)))
+                .map(DiagnosisTaskView::from);
+    }
+
+    private Mono<DiagnosisTask> createTask(String incidentId) {
         // 先确认事件存在，再禁止同一事件同时运行多个诊断任务。
         return incidentQueryService.findById(incidentId)
                 .then(diagnosisRepository.findActiveByIncidentId(incidentId)
@@ -49,8 +66,7 @@ public class DiagnosisService {
                         .switchIfEmpty(Mono.defer(() -> diagnosisRepository.findLatestByIncidentId(incidentId)
                                 .map(latest -> latest.getVersion() + 1)
                                 .defaultIfEmpty(1)
-                                .flatMap(version -> createNew(incidentId, version)))))
-                .map(DiagnosisTaskView::from);
+                                .flatMap(version -> createNew(incidentId, version)))));
     }
 
     private Mono<DiagnosisTask> createNew(String incidentId, int version) {
@@ -69,6 +85,13 @@ public class DiagnosisService {
                 .flatMap(task -> diagnosisRepository.findReportByTaskId(taskId)
                         .map(report -> new DiagnosisView(DiagnosisTaskView.from(task), DiagnosisReportView.from(report)))
                         .defaultIfEmpty(new DiagnosisView(DiagnosisTaskView.from(task), null)));
+    }
+
+    public Flux<DiagnosisTaskView> findByIncidentId(String incidentId, int requestedLimit) {
+        int limit = Math.max(1, Math.min(requestedLimit, 100));
+        return incidentQueryService.findById(incidentId)
+                .flatMapMany(incident -> diagnosisRepository.findByIncidentId(incidentId, limit))
+                .map(DiagnosisTaskView::from);
     }
 
     public Mono<Void> complete(DiagnosisCompletedEvent event) {
@@ -99,18 +122,26 @@ public class DiagnosisService {
     }
 
     public Mono<DiagnosisTaskView> cancel(String taskId) {
-        return findTask(taskId)
-                .flatMap(task -> diagnosisRepository.saveTask(task.cancel(clock.instant())))
-                .map(DiagnosisTaskView::from);
+        AuditOperation operation = new AuditOperation(AuditAction.DIAGNOSIS_CANCEL,
+                AuditTargetType.DIAGNOSIS, taskId);
+        return auditTrailService.audit(operation,
+                        () -> findTask(taskId).flatMap(before -> diagnosisRepository
+                                .saveTask(before.cancel(clock.instant()))
+                                .map(after -> new DiagnosisChange(before, after))),
+                        change -> AuditResult.changed(taskId, snapshot(change.before), snapshot(change.after)))
+                .map(change -> DiagnosisTaskView.from(change.after));
     }
 
     public Mono<DiagnosisTaskView> retry(String taskId) {
-        return findTask(taskId).flatMap(task -> {
-            if (task.isActive()) {
-                return Mono.error(new BusinessConflictException("An active diagnosis cannot be retried"));
-            }
-            return create(task.getIncidentId());
-        });
+        AuditOperation operation = new AuditOperation(AuditAction.DIAGNOSIS_RETRY,
+                AuditTargetType.DIAGNOSIS, taskId);
+        return auditTrailService.audit(operation, () -> findTask(taskId).flatMap(task -> {
+                    if (task.isActive()) {
+                        return Mono.error(new BusinessConflictException("An active diagnosis cannot be retried"));
+                    }
+                    return createTask(task.getIncidentId()).map(retried -> new DiagnosisChange(task, retried));
+                }), change -> AuditResult.changed(taskId, snapshot(change.before), snapshot(change.after)))
+                .map(change -> DiagnosisTaskView.from(change.after));
     }
 
     public Mono<Void> timeoutExpired(Duration timeout) {
@@ -152,5 +183,24 @@ public class DiagnosisService {
                 && report.getEvidence().equals(event.getEvidence())
                 && report.getRecommendations().equals(event.getRecommendations())
                 && report.getToolCalls().equals(event.getToolCalls());
+    }
+
+    private java.util.Map<String, Object> snapshot(DiagnosisTask task) {
+        return AuditState.of("taskId", task.getId(),
+                "incidentId", task.getIncidentId(),
+                "version", task.getVersion(),
+                "status", task.getStatus().name(),
+                "failureReason", task.getFailureReason(),
+                "updatedAt", task.getUpdatedAt().toString());
+    }
+
+    private static final class DiagnosisChange {
+        private final DiagnosisTask before;
+        private final DiagnosisTask after;
+
+        private DiagnosisChange(DiagnosisTask before, DiagnosisTask after) {
+            this.before = before;
+            this.after = after;
+        }
     }
 }

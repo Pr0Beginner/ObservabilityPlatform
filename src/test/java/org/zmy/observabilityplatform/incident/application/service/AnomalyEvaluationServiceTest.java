@@ -44,7 +44,7 @@ class AnomalyEvaluationServiceTest {
         samples = new InMemoryMetricTraceSampleRepository();
         IncidentNotifier notifier = (incident, type) -> Mono.empty();
         IncidentNotificationService notificationService = new IncidentNotificationService(
-                new InMemoryIncidentNotificationRepository(), incidents, notifier, clock, 120);
+                new InMemoryIncidentNotificationRepository(), incidents, notifier, clock, 120, 5);
         IncidentLifecycleService lifecycle = new IncidentLifecycleService(incidents, notificationService);
         InMemoryAnomalyPolicyRepository policies = new InMemoryAnomalyPolicyRepository();
         policies.create(AnomalyPolicy.create("orders-operation-policy", "Orders operation",

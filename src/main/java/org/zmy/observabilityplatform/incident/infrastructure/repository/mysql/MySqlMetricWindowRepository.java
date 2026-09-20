@@ -106,6 +106,22 @@ public class MySqlMetricWindowRepository implements MetricWindowRepository {
                 .all();
     }
 
+    @Override
+    public Mono<Long> deleteBefore(Instant cutoff, int limit) {
+        if (limit < 1) {
+            return Mono.error(new IllegalArgumentException("limit must be positive"));
+        }
+        return databaseClient.sql("""
+                        DELETE FROM metric_windows
+                        WHERE window_start < :cutoff
+                        ORDER BY window_start ASC
+                        LIMIT :limit
+                        """)
+                .bind("cutoff", toDatabaseTime(cutoff))
+                .bind("limit", limit)
+                .fetch().rowsUpdated();
+    }
+
     private MetricWindow map(Row row) {
         MetricType type = MetricType.valueOf(row.get("metric_type", String.class));
         String service = row.get("service", String.class);

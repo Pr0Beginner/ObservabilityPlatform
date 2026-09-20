@@ -46,6 +46,14 @@ public class InMemoryDiagnosisRepository implements DiagnosisRepository {
     }
 
     @Override
+    public Flux<DiagnosisTask> findByIncidentId(String incidentId, int limit) {
+        return Flux.fromStream(tasks.values().stream()
+                .filter(task -> task.getIncidentId().equals(incidentId))
+                .sorted(Comparator.comparingInt(DiagnosisTask::getVersion).reversed())
+                .limit(limit));
+    }
+
+    @Override
     public Mono<DiagnosisReport> saveReport(DiagnosisReport report) {
         reportsByTask.put(report.getTaskId(), report);
         return Mono.just(report);

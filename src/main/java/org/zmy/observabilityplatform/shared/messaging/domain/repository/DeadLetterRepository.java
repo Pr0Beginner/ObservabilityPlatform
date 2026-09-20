@@ -1,8 +1,9 @@
 package org.zmy.observabilityplatform.shared.messaging.domain.repository;
 
 import org.zmy.observabilityplatform.shared.messaging.domain.model.DeadLetterMessage;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
+import java.time.Instant;
 
 public interface DeadLetterRepository {
     Mono<DeadLetterMessage> saveIfAbsent(DeadLetterMessage message);
@@ -11,5 +12,13 @@ public interface DeadLetterRepository {
 
     Mono<DeadLetterMessage> findById(String id);
 
-    Flux<DeadLetterMessage> findAll(int limit);
+    Mono<DeadLetterMessage> claimForReplay(String id, String owner, Instant now, Instant leaseUntil);
+
+    Mono<DeadLetterMessage> completeReplay(String id, String owner, Instant replayedAt);
+
+    Mono<Boolean> releaseReplay(String id, String owner);
+
+    Mono<Long> deleteReplayedBefore(Instant cutoff, int limit);
+
+    Mono<Long> deleteUnreplayedBefore(Instant cutoff, Instant now, int limit);
 }

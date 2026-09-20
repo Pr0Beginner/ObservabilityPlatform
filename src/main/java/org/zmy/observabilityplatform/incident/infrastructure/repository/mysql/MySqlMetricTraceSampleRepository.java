@@ -46,6 +46,22 @@ public class MySqlMetricTraceSampleRepository implements MetricTraceSampleReposi
                 .map((row, metadata) -> row.get("trace_id", String.class)).one();
     }
 
+    @Override
+    public Mono<Long> deleteBefore(Instant cutoff, int limit) {
+        if (limit < 1) {
+            return Mono.error(new IllegalArgumentException("limit must be positive"));
+        }
+        return databaseClient.sql("""
+                        DELETE FROM metric_trace_samples
+                        WHERE window_start < :cutoff
+                        ORDER BY window_start ASC
+                        LIMIT :limit
+                        """)
+                .bind("cutoff", toDatabaseTime(cutoff))
+                .bind("limit", limit)
+                .fetch().rowsUpdated();
+    }
+
     private LocalDateTime toDatabaseTime(Instant value) {
         return LocalDateTime.ofInstant(value, ZoneOffset.UTC);
     }
