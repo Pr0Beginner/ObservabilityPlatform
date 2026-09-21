@@ -10,6 +10,7 @@ import org.zmy.observabilityplatform.diagnosis.application.service.DiagnosisServ
 import org.zmy.observabilityplatform.diagnosis.domain.event.DiagnosisCompletedEvent;
 import org.zmy.observabilityplatform.diagnosis.interfaces.rest.response.DiagnosisTaskResponse;
 import org.zmy.observabilityplatform.incident.interfaces.rest.response.IncidentResponse;
+import org.zmy.observabilityplatform.logging.interfaces.rest.response.LogPageResponse;
 import org.zmy.observabilityplatform.logging.interfaces.rest.response.LogResponse;
 import org.zmy.observabilityplatform.shared.interfaces.rest.PageResponse;
 
@@ -69,12 +70,14 @@ class ObservabilityPlatformEndToEndTest {
                 .expectBody()
                 .jsonPath("$.accepted").isEqualTo(4);
 
-        List<LogResponse> storedLogs = webClient.get()
+        LogPageResponse storedPage = webClient.get()
                 .uri(uri -> uri.path("/api/v1/logs").queryParam("service", "orders-service").build())
                 .exchange()
                 .expectStatus().isOk()
-                .expectBodyList(LogResponse.class)
+                .expectBody(LogPageResponse.class)
                 .returnResult().getResponseBody();
+        assertThat(storedPage).isNotNull();
+        List<LogResponse> storedLogs = storedPage.getItems();
         assertThat(storedLogs).hasSize(4);
         assertThat(storedLogs).anySatisfy(log -> assertThat(log.getRawMessage()).contains("password=***"));
         assertThat(storedLogs).filteredOn(log -> "ERROR".equals(log.getLevel()))
@@ -143,6 +146,64 @@ class ObservabilityPlatformEndToEndTest {
                 .expectBody()
                 .jsonPath("$.version").isEqualTo(2)
                 .jsonPath("$.status").isEqualTo("PENDING");
+    }
+
+    @Test
+    void paginatesLogsWithAStableCursor() {
+        String service = "cursor-e2e-" + UUID.randomUUID();
+        Instant timestamp = Instant.parse("2026-09-21T08:30:00Z");
+        Map<String, Object> request = Map.of(
+                "batchId", "cursor-batch-" + UUID.randomUUID(),
+                "service", service,
+                "environment", "test",
+                "logs", List.of(
+                        jsonLog(timestamp, "cursor message one"),
+                        jsonLog(timestamp, "cursor message two"),
+                        jsonLog(timestamp, "cursor message three"))
+        );
+        webClient.post().uri("/api/v1/logs/batch")
+                .bodyValue(request)
+                .exchange()
+                .expectStatus().isAccepted();
+
+        LogPageResponse first = webClient.get()
+                .uri(uri -> uri.path("/api/v1/logs")
+                        .queryParam("service", service)
+                        .queryParam("size", 2)
+                        .build())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(LogPageResponse.class)
+                .returnResult().getResponseBody();
+        assertThat(first).isNotNull();
+        assertThat(first.getItems()).hasSize(2);
+        assertThat(first.isHasMore()).isTrue();
+        assertThat(first.getNextCursor()).isNotBlank();
+
+        LogPageResponse second = webClient.get()
+                .uri(uri -> uri.path("/api/v1/logs")
+                        .queryParam("service", service)
+                        .queryParam("size", 2)
+                        .queryParam("cursor", first.getNextCursor())
+                        .build())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(LogPageResponse.class)
+                .returnResult().getResponseBody();
+        assertThat(second).isNotNull();
+        assertThat(second.getItems()).hasSize(1);
+        assertThat(second.isHasMore()).isFalse();
+        assertThat(second.getNextCursor()).isNull();
+        assertThat(first.getItems()).extracting(LogResponse::getId)
+                .doesNotContainAnyElementsOf(second.getItems().stream().map(LogResponse::getId).toList());
+
+        webClient.get().uri(uri -> uri.path("/api/v1/logs")
+                        .queryParam("cursor", "invalid-cursor")
+                        .build())
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("INVALID_REQUEST");
     }
 
     @Test

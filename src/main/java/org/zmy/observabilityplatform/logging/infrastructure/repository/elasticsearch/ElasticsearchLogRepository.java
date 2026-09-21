@@ -76,19 +76,19 @@ public class ElasticsearchLogRepository implements LogRepository, LogQueryReposi
     @Override
     public Flux<LogEntry> findByIncidentContext(String service, String environment, String fingerprint, int limit) {
         return search(new LogSearchQuery(null, null, service, environment, null,
-                null, null, null, null, fingerprint, limit));
+                null, null, null, null, fingerprint, null, limit));
     }
 
     @Override
     public Flux<LogEntry> findByTraceId(String traceId, int limit) {
         return search(new LogSearchQuery(null, null, null, null, null,
-                traceId, null, null, null, null, limit));
+                traceId, null, null, null, null, null, limit));
     }
 
     @Override
     public Flux<LogEntry> findByRequestId(String requestId, int limit) {
         return search(new LogSearchQuery(null, null, null, null, null,
-                null, null, requestId, null, null, limit));
+                null, null, requestId, null, null, null, limit));
     }
 
     private Mono<Void> installIndexTemplate() {
@@ -156,7 +156,14 @@ public class ElasticsearchLogRepository implements LogRepository, LogQueryReposi
     private ObjectNode buildQuery(LogSearchQuery query) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("size", query.getSize());
-        root.putArray("sort").addObject().putObject("@timestamp").put("order", "desc");
+        ArrayNode sort = root.putArray("sort");
+        sort.addObject().putObject("@timestamp").put("order", "desc");
+        sort.addObject().putObject("id").put("order", "desc");
+        if (query.getCursor() != null) {
+            root.putArray("search_after")
+                    .add(query.getCursor().getTimestampEpochMillis())
+                    .add(query.getCursor().getId());
+        }
         ObjectNode bool = root.putObject("query").putObject("bool");
         ArrayNode filter = bool.putArray("filter");
         term(filter, "service", query.getService());

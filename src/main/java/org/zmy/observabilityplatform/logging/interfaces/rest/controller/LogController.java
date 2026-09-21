@@ -11,13 +11,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.zmy.observabilityplatform.logging.application.query.LogSearchQuery;
+import org.zmy.observabilityplatform.logging.application.query.LogCursorCodec;
 import org.zmy.observabilityplatform.logging.application.service.LogIngestionService;
 import org.zmy.observabilityplatform.logging.application.service.LogQueryService;
 import org.zmy.observabilityplatform.logging.interfaces.rest.assembler.LogRequestAssembler;
 import org.zmy.observabilityplatform.logging.interfaces.rest.request.LogBatchRequest;
 import org.zmy.observabilityplatform.logging.interfaces.rest.response.LogBatchResponse;
-import org.zmy.observabilityplatform.logging.interfaces.rest.response.LogResponse;
-import reactor.core.publisher.Flux;
+import org.zmy.observabilityplatform.logging.interfaces.rest.response.LogPageResponse;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
@@ -28,13 +28,16 @@ public class LogController {
     private final LogIngestionService ingestionService;
     private final LogQueryService queryService;
     private final LogRequestAssembler requestAssembler;
+    private final LogCursorCodec cursorCodec;
 
     public LogController(LogIngestionService ingestionService,
                          LogQueryService queryService,
-                         LogRequestAssembler requestAssembler) {
+                         LogRequestAssembler requestAssembler,
+                         LogCursorCodec cursorCodec) {
         this.ingestionService = ingestionService;
         this.queryService = queryService;
         this.requestAssembler = requestAssembler;
+        this.cursorCodec = cursorCodec;
     }
 
     /**
@@ -51,7 +54,7 @@ public class LogController {
      * 按时间、服务、环境和日志特征等条件组合查询日志。
      */
     @GetMapping
-    public Flux<LogResponse> search(
+    public Mono<LogPageResponse> search(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
             @RequestParam(required = false) String service,
@@ -62,9 +65,10 @@ public class LogController {
             @RequestParam(required = false) String requestId,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String fingerprint,
+            @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "100") int size) {
         return queryService.search(new LogSearchQuery(from, to, service, environment, level, traceId,
-                        spanId, requestId, keyword, fingerprint, size))
-                .map(LogResponse::from);
+                        spanId, requestId, keyword, fingerprint, cursorCodec.decode(cursor), size))
+                .map(LogPageResponse::from);
     }
 }

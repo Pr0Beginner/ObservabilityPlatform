@@ -6,6 +6,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.zmy.observabilityplatform.logging.application.query.LogCursor;
 import org.zmy.observabilityplatform.logging.application.query.LogSearchQuery;
 import org.zmy.observabilityplatform.logging.domain.model.LogEntry;
 import reactor.core.publisher.Mono;
@@ -113,7 +114,8 @@ class ElasticsearchLogRepositoryTest {
                 .contains("\"@timestamp\":\"2026-09-18T08:30:00Z\"");
 
         List<LogEntry> found = repository.search(new LogSearchQuery(null, null,
-                        "orders", "test", "ERROR", "trace-1", "span-1", "request-1", "timeout", null, 20))
+                        "orders", "test", "ERROR", "trace-1", "span-1", "request-1", "timeout", null,
+                        new LogCursor(timestamp.toEpochMilli(), "cursor-id"), 20))
                 .collectList()
                 .block(Duration.ofSeconds(5));
 
@@ -123,6 +125,8 @@ class ElasticsearchLogRepositoryTest {
                 .contains("\"term\":{\"spanId\":\"span-1\"}")
                 .contains("\"term\":{\"requestId\":\"request-1\"}")
                 .contains("\"multi_match\":{\"query\":\"timeout\"")
-                .contains("\"@timestamp\":{\"order\":\"desc\"}");
+                .contains("\"@timestamp\":{\"order\":\"desc\"}")
+                .contains("\"id\":{\"order\":\"desc\"}")
+                .contains("\"search_after\":[" + timestamp.toEpochMilli() + ",\"cursor-id\"]");
     }
 }

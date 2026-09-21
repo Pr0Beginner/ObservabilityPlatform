@@ -18,6 +18,10 @@ import java.util.function.Predicate;
 @Repository
 @ConditionalOnProperty(name = "app.adapters.mode", havingValue = "local", matchIfMissing = true)
 public class InMemoryLogRepository implements LogRepository, LogQueryRepository {
+    private static final Comparator<LogEntry> LOG_ORDER = Comparator
+            .comparingLong((LogEntry entry) -> entry.getTimestamp().toEpochMilli()).reversed()
+            .thenComparing(LogEntry::getId, Comparator.reverseOrder());
+
     private final Map<String, LogEntry> logs = new ConcurrentHashMap<>();
 
     @Override
@@ -33,7 +37,8 @@ public class InMemoryLogRepository implements LogRepository, LogQueryRepository 
         Predicate<LogEntry> predicate = entry -> matches(entry, query);
         return Flux.fromStream(logs.values().stream()
                 .filter(predicate)
-                .sorted(Comparator.comparing(LogEntry::getTimestamp).reversed())
+                .filter(entry -> afterCursor(entry, query))
+                .sorted(LOG_ORDER)
                 .limit(query.getSize()));
     }
 
@@ -43,7 +48,7 @@ public class InMemoryLogRepository implements LogRepository, LogQueryRepository 
                 .filter(entry -> service.equals(entry.getService()))
                 .filter(entry -> environment.equals(entry.getEnvironment()))
                 .filter(entry -> fingerprint.equals(entry.getFingerprint()))
-                .sorted(Comparator.comparing(LogEntry::getTimestamp).reversed())
+                .sorted(LOG_ORDER)
                 .limit(limit));
     }
 
@@ -51,7 +56,7 @@ public class InMemoryLogRepository implements LogRepository, LogQueryRepository 
     public Flux<LogEntry> findByTraceId(String traceId, int limit) {
         return Flux.fromStream(logs.values().stream()
                 .filter(entry -> traceId.equals(entry.getTraceId()))
-                .sorted(Comparator.comparing(LogEntry::getTimestamp).reversed())
+                .sorted(LOG_ORDER)
                 .limit(limit));
     }
 
@@ -59,7 +64,7 @@ public class InMemoryLogRepository implements LogRepository, LogQueryRepository 
     public Flux<LogEntry> findByRequestId(String requestId, int limit) {
         return Flux.fromStream(logs.values().stream()
                 .filter(entry -> requestId.equals(entry.getRequestId()))
-                .sorted(Comparator.comparing(LogEntry::getTimestamp).reversed())
+                .sorted(LOG_ORDER)
                 .limit(limit));
     }
 
@@ -79,5 +84,15 @@ public class InMemoryLogRepository implements LogRepository, LogQueryRepository 
 
     private boolean sameIfPresent(String expected, String actual) {
         return expected == null || expected.isBlank() || (actual != null && expected.equalsIgnoreCase(actual));
+    }
+
+    private boolean afterCursor(LogEntry entry, LogSearchQuery query) {
+        if (query.getCursor() == null) {
+            return true;
+        }
+        long timestamp = entry.getTimestamp().toEpochMilli();
+        long cursorTimestamp = query.getCursor().getTimestampEpochMillis();
+        return timestamp < cursorTimestamp
+                || timestamp == cursorTimestamp && entry.getId().compareTo(query.getCursor().getId()) < 0;
     }
 }

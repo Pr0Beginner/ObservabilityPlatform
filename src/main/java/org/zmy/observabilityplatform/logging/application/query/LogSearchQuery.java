@@ -16,5 +16,6 @@ public class LogSearchQuery {
     String requestId;
     String keyword;
     String fingerprint;
+    LogCursor cursor;
     int size;
 }

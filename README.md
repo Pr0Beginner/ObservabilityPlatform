@@ -126,7 +126,7 @@ mvn spring-boot:run -Dspring-boot.run.arguments="--app.grpc.enabled=false"
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `POST` | `/api/v1/logs/batch` | 批量接收日志 |
-| `GET` | `/api/v1/logs` | 查询日志 |
+| `GET` | `/api/v1/logs` | 使用 `size` 和 `cursor` 游标分页查询日志 |
 | `GET` | `/api/v1/traces/{traceId}` | 查询日志并还原服务调用树 |
 | `GET` | `/api/v1/requests/{requestId}/traces` | 通过请求标识查询调用链 |
 | `GET` | `/api/v1/traces/{traceId}/incidents` | 查询调用链关联故障 |
@@ -169,6 +169,16 @@ curl -u operator:operator-local -X POST http://localhost:8080/api/v1/logs/batch 
       }
     ]
   }'
+```
+
+日志查询按时间和日志 ID 稳定倒序排列。首次请求不传 `cursor`，后续请求原样携带上一次返回的 `nextCursor`：
+
+```json
+{
+  "items": [],
+  "nextCursor": "MTc4OTYzOTIwMDAwMDpsb2ctMDAx",
+  "hasMore": true
+}
 ```
 
 链路中的服务共享同一个 `traceId`，每次服务调用使用独立 `spanId`，并通过 `parentSpanId` 记录上游调用。平台 API 会在响应头返回 `X-Trace-Id`；被观测服务也需要在入口生成或接收 Trace 上下文，并向下游透传。
