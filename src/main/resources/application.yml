@@ -100,6 +100,8 @@ app:
 
   # Diagnosis 诊断任务生命周期配置。
   diagnosis:
+    # 已持久化诊断请求的投递间隔；发送失败保留 outbox 记录并在后续轮次重试。
+    dispatch-delay-ms: ${DIAGNOSIS_DISPATCH_DELAY_MS:1000}
     # 诊断任务运行超过该时长后标记为超时，单位为分钟。
     timeout-minutes: ${DIAGNOSIS_TIMEOUT_MINUTES:10}
     # 扫描超时诊断任务的固定间隔，单位为毫秒。

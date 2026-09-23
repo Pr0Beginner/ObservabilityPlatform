@@ -11,8 +11,13 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class LogPageResponse {
+    /** 当前页的日志数据。 */
     private List<LogResponse> items;
+
+    /** 下一页游标；没有下一页时为空。 */
     private String nextCursor;
+
+    /** 是否仍有满足条件的后续日志。 */
     private boolean hasMore;
 
     public static LogPageResponse from(LogSearchPage page) {

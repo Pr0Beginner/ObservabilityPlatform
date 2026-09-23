@@ -14,18 +14,43 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class TraceSpanResponse {
+    /** 当前调用跨度标识。 */
     private String spanId;
+
+    /** 上游调用跨度标识。 */
     private String parentSpanId;
+
+    /** 执行当前调用的服务名称。 */
     private String service;
+
+    /** 当前调用的操作或接口名称。 */
     private String operation;
+
+    /** 调用跨度类型，例如 SERVER 或 CLIENT。 */
     private String spanKind;
+
+    /** 当前调用的开始时间。 */
     private Instant startedAt;
+
+    /** 当前调用的结束时间。 */
     private Instant endedAt;
+
+    /** 当前调用的持续时间，单位为毫秒。 */
     private long durationMs;
+
+    /** 当前调用是否执行成功。 */
     private boolean success;
+
+    /** 当前调用的 HTTP 或 RPC 状态码。 */
     private Integer statusCode;
+
+    /** 当前调用的业务或系统错误码。 */
     private String errorCode;
+
+    /** 归属于当前跨度的日志。 */
     private List<LogResponse> logs;
+
+    /** 当前跨度直接调用的下游跨度。 */
     private List<TraceSpanResponse> children;
 
     public static TraceSpanResponse from(TraceSpan span, TraceCallTree tree) {

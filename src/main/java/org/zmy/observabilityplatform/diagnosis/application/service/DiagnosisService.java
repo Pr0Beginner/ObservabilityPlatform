@@ -10,40 +10,37 @@ import org.zmy.observabilityplatform.audit.domain.model.AuditTargetType;
 import org.zmy.observabilityplatform.diagnosis.application.dto.DiagnosisReportView;
 import org.zmy.observabilityplatform.diagnosis.application.dto.DiagnosisTaskView;
 import org.zmy.observabilityplatform.diagnosis.application.dto.DiagnosisView;
-import org.zmy.observabilityplatform.diagnosis.application.publisher.DiagnosisRequestedPublisher;
 import org.zmy.observabilityplatform.diagnosis.domain.event.DiagnosisCompletedEvent;
 import org.zmy.observabilityplatform.diagnosis.domain.event.DiagnosisRequestedEvent;
+import org.zmy.observabilityplatform.diagnosis.domain.exception.DiagnosisStateConflictException;
 import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisReport;
 import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisTask;
+import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisTaskStatus;
 import org.zmy.observabilityplatform.diagnosis.domain.repository.DiagnosisRepository;
 import org.zmy.observabilityplatform.incident.application.service.IncidentQueryService;
-import org.zmy.observabilityplatform.shared.exception.NotFoundException;
 import org.zmy.observabilityplatform.shared.exception.BusinessConflictException;
+import org.zmy.observabilityplatform.shared.exception.NotFoundException;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
-import java.time.Duration;
-import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisTaskStatus;
-import reactor.core.publisher.Flux;
 
 @Service
 public class DiagnosisService {
     private final DiagnosisRepository diagnosisRepository;
     private final IncidentQueryService incidentQueryService;
-    private final DiagnosisRequestedPublisher eventPublisher;
     private final Clock clock;
     private final AuditTrailService auditTrailService;
 
     public DiagnosisService(DiagnosisRepository diagnosisRepository,
                             IncidentQueryService incidentQueryService,
-                            DiagnosisRequestedPublisher eventPublisher,
                             Clock clock,
                             AuditTrailService auditTrailService) {
         this.diagnosisRepository = diagnosisRepository;
         this.incidentQueryService = incidentQueryService;
-        this.eventPublisher = eventPublisher;
         this.clock = clock;
         this.auditTrailService = auditTrailService;
     }
@@ -74,9 +71,8 @@ public class DiagnosisService {
         DiagnosisTask task = DiagnosisTask.request(UUID.randomUUID().toString(), incidentId, version, now);
         DiagnosisRequestedEvent event = new DiagnosisRequestedEvent(UUID.randomUUID().toString(), task.getId(),
                 incidentId, task.getVersion(), now);
-        // 任务持久化成功后再发布请求，避免消费者处理一个尚不可查询的任务。
-        return diagnosisRepository.saveTask(task)
-                .flatMap(saved -> eventPublisher.publish(event).thenReturn(saved));
+        // 仓储原子保存任务及请求事件，投递由独立的应用服务重试。
+        return diagnosisRepository.createTask(task, event);
     }
 
     public Mono<DiagnosisView> findById(String taskId) {
@@ -108,17 +104,18 @@ public class DiagnosisService {
                     }
                     // 下游显式返回错误时只更新任务状态，不生成不完整的报告。
                     if (event.getError() != null && !event.getError().isBlank()) {
-                        return diagnosisRepository.saveTask(task.fail(event.getError(), clock.instant())).then();
+                        return diagnosisRepository.transition(task, task.fail(event.getError(), clock.instant())).then();
                     }
-                    // 报告落库后再标记任务成功，保证成功状态一定对应可查询的报告。
+                    // 仓储通过原状态比较和事务保证报告与成功状态一同提交。
                     Instant completedAt = event.getCompletedAt() == null ? clock.instant() : event.getCompletedAt();
                     DiagnosisReport report = DiagnosisReport.generate(UUID.randomUUID().toString(), task.getId(),
                             event.getVersion(), event.getRootCause(), event.getConfidence(), event.getEvidence(),
                             event.getRecommendations(), event.getToolCalls(), completedAt);
-                    return diagnosisRepository.saveReport(report)
-                            .then(diagnosisRepository.saveTask(task.complete(report, clock.instant())))
+                    return diagnosisRepository.complete(task, task.complete(report, clock.instant()), report)
                             .then();
-                });
+                })
+                .onErrorResume(DiagnosisStateConflictException.class,
+                        error -> findTask(event.getTaskId()).flatMap(task -> handleDuplicateResult(task, event)));
     }
 
     public Mono<DiagnosisTaskView> cancel(String taskId) {
@@ -126,7 +123,7 @@ public class DiagnosisService {
                 AuditTargetType.DIAGNOSIS, taskId);
         return auditTrailService.audit(operation,
                         () -> findTask(taskId).flatMap(before -> diagnosisRepository
-                                .saveTask(before.cancel(clock.instant()))
+                                .transition(before, before.cancel(clock.instant()))
                                 .map(after -> new DiagnosisChange(before, after))),
                         change -> AuditResult.changed(taskId, snapshot(change.before), snapshot(change.after)))
                 .map(change -> DiagnosisTaskView.from(change.after));
@@ -150,7 +147,8 @@ public class DiagnosisService {
         }
         Instant cutoff = clock.instant().minus(timeout);
         return diagnosisRepository.findActiveUpdatedBefore(cutoff)
-                .concatMap(task -> diagnosisRepository.saveTask(task.timeout(clock.instant())))
+                .concatMap(task -> diagnosisRepository.transition(task, task.timeout(clock.instant()))
+                        .onErrorResume(DiagnosisStateConflictException.class, error -> Mono.empty()))
                 .then();
     }
 

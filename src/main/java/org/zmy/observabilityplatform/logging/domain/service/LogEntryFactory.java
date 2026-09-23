@@ -30,9 +30,9 @@ public class LogEntryFactory {
         String rawMessage = sensitiveDataProtector.protect(raw.getContent());
         String level = parsed.getLevel() == null ? "UNKNOWN" : parsed.getLevel().toUpperCase(Locale.ROOT);
         // 解析出的结构化属性和采集端附加属性都必须经过递归脱敏。
-        Map<String, Object> attributes = protectAttributes(parsed.getAttributes());
+        Map<String, Object> attributes = new LinkedHashMap<>(sensitiveDataProtector.protectAttributes(parsed.getAttributes()));
         // 采集端属性后合并，使调用方显式传入的上下文拥有更高优先级。
-        attributes.putAll(protectAttributes(raw.getAttributes()));
+        attributes.putAll(sensitiveDataProtector.protectAttributes(raw.getAttributes()));
         Boolean success = parsed.getSuccess();
         if (success == null && parsed.getStatusCode() != null) {
             success = parsed.getStatusCode() < 400;
@@ -44,36 +44,4 @@ public class LogEntryFactory {
                 fingerprintGenerator.generate(batch.getService(), level, message), attributes);
     }
 
-    private Map<String, Object> protectAttributes(Map<String, Object> source) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        if (source != null) {
-            source.forEach((key, value) -> result.put(key, protectAttributeValue(key, value)));
-        }
-        return result;
-    }
-
-    private Object protectAttributeValue(String key, Object value) {
-        String normalizedKey = key.toLowerCase(Locale.ROOT);
-        if (normalizedKey.contains("password") || normalizedKey.contains("passwd")
-                || normalizedKey.contains("token") || normalizedKey.contains("authorization")
-                || normalizedKey.contains("cookie")) {
-            return "***";
-        }
-        if (value instanceof String text) {
-            return sensitiveDataProtector.protect(text);
-        }
-        // 嵌套对象和集合也可能携带敏感字段，需保留原结构逐层处理。
-        if (value instanceof Map<?, ?> nested) {
-            Map<String, Object> converted = new LinkedHashMap<>();
-            nested.forEach((nestedKey, nestedValue) -> converted.put(String.valueOf(nestedKey),
-                    protectAttributeValue(String.valueOf(nestedKey), nestedValue)));
-            return converted;
-        }
-        if (value instanceof Iterable<?> values) {
-            return java.util.stream.StreamSupport.stream(values.spliterator(), false)
-                    .map(item -> protectAttributeValue(key, item))
-                    .toList();
-        }
-        return value;
-    }
 }

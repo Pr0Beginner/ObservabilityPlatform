@@ -4,8 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.test.web.reactive.server.WebTestClient;
 import org.zmy.observabilityplatform.diagnosis.application.service.DiagnosisService;
 import org.zmy.observabilityplatform.diagnosis.domain.event.DiagnosisCompletedEvent;
 import org.zmy.observabilityplatform.diagnosis.interfaces.rest.response.DiagnosisTaskResponse;
@@ -204,6 +204,16 @@ class ObservabilityPlatformEndToEndTest {
                 .expectStatus().isBadRequest()
                 .expectBody()
                 .jsonPath("$.code").isEqualTo("INVALID_REQUEST");
+
+        webClient.get().uri(uri -> uri.path("/api/v1/logs")
+                        .queryParam("size", 0)
+                        .build())
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("INVALID_REQUEST")
+                .jsonPath("$.details[0]").value(detail ->
+                        assertThat(detail.toString()).contains("size"));
     }
 
     @Test

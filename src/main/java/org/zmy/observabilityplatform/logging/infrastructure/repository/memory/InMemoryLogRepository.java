@@ -90,6 +90,7 @@ public class InMemoryLogRepository implements LogRepository, LogQueryRepository 
         if (query.getCursor() == null) {
             return true;
         }
+        // 与 Elasticsearch search_after 保持相同边界，时间相同时用日志 ID 消除歧义。
         long timestamp = entry.getTimestamp().toEpochMilli();
         long cursorTimestamp = query.getCursor().getTimestampEpochMillis();
         return timestamp < cursorTimestamp

@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.zmy.observabilityplatform.logging.application.query.LogCursor;
 import org.zmy.observabilityplatform.logging.application.query.LogSearchQuery;
@@ -17,9 +19,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ElasticsearchLogRepositoryTest {
     private static final String DATA_STREAM = "logs-observability-default";
@@ -89,6 +93,32 @@ class ElasticsearchLogRepositoryTest {
     @AfterEach
     void tearDown() {
         server.disposeNow();
+    }
+
+    @Test
+    void retriesTemplateInstallationAfterTemporaryFailure() {
+        AtomicInteger templateCalls = new AtomicInteger();
+        AtomicInteger bulkCalls = new AtomicInteger();
+        var builder = WebClient.builder().exchangeFunction(request -> {
+            if (request.url().getPath().startsWith("/_index_template")) {
+                return Mono.just(ClientResponse.create(templateCalls.incrementAndGet() == 1
+                        ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.OK).build());
+            }
+            bulkCalls.incrementAndGet();
+            return Mono.just(ClientResponse.create(HttpStatus.OK).header("Content-Type", "application/json")
+                    .body("{\"items\":[{\"create\":{\"status\":201}}]}").build());
+        });
+        var repo = new ElasticsearchLogRepository(builder, JsonMapper.builder().findAndAddModules().build(),
+                "http://unused.invalid", DATA_STREAM, TEMPLATE, "30d");
+        Instant now = Instant.parse("2026-09-22T12:00:00Z");
+        LogEntry entry = LogEntry.create("log", "batch", now, now, "orders", "test", "INFO", "trace",
+                null, null, null, null, null, null, null, null, null, "ok", "ok", "fp", Map.of());
+
+        assertThatThrownBy(() -> repo.saveAll(List.of(entry)).block()).isInstanceOf(RuntimeException.class);
+        assertThat(repo.saveAll(List.of(entry)).block()).containsExactly(entry);
+        repo.saveAll(List.of(entry)).block();
+        assertThat(templateCalls).hasValue(2);
+        assertThat(bulkCalls).hasValue(2);
     }
 
     @Test

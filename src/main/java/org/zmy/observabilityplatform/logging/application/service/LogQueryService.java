@@ -47,9 +47,11 @@ public class LogQueryService {
     }
 
     private LogSearchPage toPage(List<LogEntry> entries, int size) {
+        // 仓储层按“时间戳 + 日志 ID”稳定倒序，多取的一条只用于判断是否还有下一页。
         boolean hasMore = entries.size() > size;
         List<LogEntry> selected = hasMore ? entries.subList(0, size) : entries;
         List<LogView> items = selected.stream().map(LogView::from).toList();
+        // 游标指向当前页最后一条记录，客户端无需理解或修改游标内容。
         String nextCursor = hasMore && !selected.isEmpty()
                 ? cursorCodec.encode(cursorOf(selected.get(selected.size() - 1))) : null;
         return new LogSearchPage(items, nextCursor, hasMore);

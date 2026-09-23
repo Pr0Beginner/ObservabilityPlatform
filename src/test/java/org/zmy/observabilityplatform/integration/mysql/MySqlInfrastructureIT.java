@@ -12,31 +12,6 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
-import org.zmy.observabilityplatform.incident.application.notification.IncidentNotifier;
-import org.zmy.observabilityplatform.incident.application.query.IncidentSearchQuery;
-import org.zmy.observabilityplatform.incident.application.service.AnomalyEvaluationService;
-import org.zmy.observabilityplatform.incident.application.service.AnomalyPolicyResolver;
-import org.zmy.observabilityplatform.incident.application.service.IncidentLifecycleService;
-import org.zmy.observabilityplatform.incident.application.service.IncidentNotificationService;
-import org.zmy.observabilityplatform.incident.domain.exception.IncidentVersionConflictException;
-import org.zmy.observabilityplatform.incident.domain.model.Incident;
-import org.zmy.observabilityplatform.incident.domain.model.AnomalyPolicyReference;
-import org.zmy.observabilityplatform.incident.domain.model.AnomalyDetectionSettings;
-import org.zmy.observabilityplatform.incident.domain.model.AnomalyPolicy;
-import org.zmy.observabilityplatform.incident.domain.model.AnomalyPolicyScope;
-import org.zmy.observabilityplatform.incident.domain.model.IncidentNotification;
-import org.zmy.observabilityplatform.incident.domain.model.IncidentStatus;
-import org.zmy.observabilityplatform.incident.domain.model.IncidentType;
-import org.zmy.observabilityplatform.incident.domain.model.MetricKey;
-import org.zmy.observabilityplatform.incident.domain.model.NotificationStatus;
-import org.zmy.observabilityplatform.incident.domain.model.NotificationType;
-import org.zmy.observabilityplatform.incident.domain.repository.IncidentNotificationRepository;
-import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.MySqlIncidentNotificationRepository;
-import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.MySqlAnomalyPolicyRepository;
-import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.MySqlIncidentRepository;
-import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.MySqlIncidentTraceLinkRepository;
-import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.MySqlMetricTraceSampleRepository;
-import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.MySqlMetricWindowRepository;
 import org.zmy.observabilityplatform.audit.application.query.AuditSearchQuery;
 import org.zmy.observabilityplatform.audit.domain.model.AuditAction;
 import org.zmy.observabilityplatform.audit.domain.model.AuditActor;
@@ -44,13 +19,43 @@ import org.zmy.observabilityplatform.audit.domain.model.AuditOutcome;
 import org.zmy.observabilityplatform.audit.domain.model.AuditRecord;
 import org.zmy.observabilityplatform.audit.domain.model.AuditTargetType;
 import org.zmy.observabilityplatform.audit.infrastructure.repository.mysql.MySqlAuditRepository;
+import org.zmy.observabilityplatform.diagnosis.domain.event.DiagnosisRequestedEvent;
+import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisReport;
+import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisTask;
+import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisTaskStatus;
+import org.zmy.observabilityplatform.diagnosis.infrastructure.repository.mysql.MySqlDiagnosisRepository;
+import org.zmy.observabilityplatform.incident.application.notification.IncidentNotifier;
+import org.zmy.observabilityplatform.incident.application.query.IncidentSearchQuery;
+import org.zmy.observabilityplatform.incident.application.service.AnomalyEvaluationService;
+import org.zmy.observabilityplatform.incident.application.service.AnomalyPolicyResolver;
+import org.zmy.observabilityplatform.incident.application.service.IncidentLifecycleService;
+import org.zmy.observabilityplatform.incident.application.service.IncidentNotificationService;
+import org.zmy.observabilityplatform.incident.domain.exception.IncidentVersionConflictException;
+import org.zmy.observabilityplatform.incident.domain.model.AnomalyDetectionSettings;
+import org.zmy.observabilityplatform.incident.domain.model.AnomalyPolicy;
+import org.zmy.observabilityplatform.incident.domain.model.AnomalyPolicyReference;
+import org.zmy.observabilityplatform.incident.domain.model.AnomalyPolicyScope;
+import org.zmy.observabilityplatform.incident.domain.model.Incident;
+import org.zmy.observabilityplatform.incident.domain.model.IncidentNotification;
+import org.zmy.observabilityplatform.incident.domain.model.IncidentStatus;
+import org.zmy.observabilityplatform.incident.domain.model.IncidentType;
+import org.zmy.observabilityplatform.incident.domain.model.MetricKey;
+import org.zmy.observabilityplatform.incident.domain.model.NotificationStatus;
+import org.zmy.observabilityplatform.incident.domain.model.NotificationType;
+import org.zmy.observabilityplatform.incident.domain.repository.IncidentNotificationRepository;
+import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.MySqlAnomalyPolicyRepository;
+import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.MySqlIncidentNotificationRepository;
+import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.MySqlIncidentRepository;
+import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.MySqlIncidentTraceLinkRepository;
+import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.MySqlMetricTraceSampleRepository;
+import org.zmy.observabilityplatform.incident.infrastructure.repository.mysql.MySqlMetricWindowRepository;
+import org.zmy.observabilityplatform.shared.messaging.application.query.DeadLetterSearchQuery;
 import org.zmy.observabilityplatform.shared.messaging.domain.model.DeadLetterMessage;
 import org.zmy.observabilityplatform.shared.messaging.domain.model.DeadLetterReplayAttempt;
 import org.zmy.observabilityplatform.shared.messaging.domain.model.DeadLetterStatus;
 import org.zmy.observabilityplatform.shared.messaging.domain.model.ReplayAttemptStatus;
-import org.zmy.observabilityplatform.shared.messaging.application.query.DeadLetterSearchQuery;
-import org.zmy.observabilityplatform.shared.messaging.infrastructure.repository.mysql.MySqlDeadLetterRepository;
 import org.zmy.observabilityplatform.shared.messaging.infrastructure.repository.mysql.MySqlDeadLetterReplayAttemptRepository;
+import org.zmy.observabilityplatform.shared.messaging.infrastructure.repository.mysql.MySqlDeadLetterRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -95,7 +100,8 @@ class MySqlInfrastructureIT {
     @BeforeAll
     static void migrateAndCreateRepositories() {
         migrate(MYSQL.getJdbcUrl(), null);
-        String r2dbcUrl = "r2dbc:mysql://" + MYSQL.getHost() + ":" + MYSQL.getMappedPort(3306)
+        String r2dbcUrl = "r2dbc:mysql://" + MYSQL.getUsername() + ":" + MYSQL.getPassword()
+                + "@" + MYSQL.getHost() + ":" + MYSQL.getMappedPort(3306)
                 + "/" + MYSQL.getDatabaseName() + "?serverZoneId=UTC";
         databaseClient = DatabaseClient.create(ConnectionFactories.get(r2dbcUrl));
         metricRepository = new MySqlMetricWindowRepository(databaseClient);
@@ -126,6 +132,7 @@ class MySqlInfrastructureIT {
                 .then(execute("DELETE FROM incident_trace_links"))
                 .then(execute("DELETE FROM audit_records"))
                 .then(execute("DELETE FROM metric_trace_samples"))
+                .then(execute("DELETE FROM metric_observations"))
                 .then(execute("DELETE FROM metric_windows"))
                 .then(execute("DELETE FROM dead_letter_messages"))
                 .then(execute("DELETE FROM incidents"))
@@ -142,7 +149,7 @@ class MySqlInfrastructureIT {
                 .map((row, metadata) -> row.get("version", String.class))
                 .all().collectList().block(TIMEOUT);
 
-        assertThat(versions).containsExactly("1", "2", "3", "4", "5", "6", "7");
+        assertThat(versions).containsExactly("1", "2", "3", "4", "5", "6", "7", "8");
 
         List<String> retentionIndexes = databaseClient.sql("""
                         SELECT index_name FROM information_schema.statistics
@@ -434,6 +441,95 @@ class MySqlInfrastructureIT {
         assertThat(deadLetterPage.getItems()).containsExactly(replayed);
         assertThat(replayAttemptRepository.findByDeadLetterId(message.getId(), 10)
                 .single().block(TIMEOUT).getStatus()).isEqualTo(ReplayAttemptStatus.SUCCEEDED);
+    }
+
+    @Test
+    void concurrentObservationRedeliveryIncrementsCountersOnce() {
+        var keys = List.of(MetricKey.requestTotal("orders", "test", "route"),
+                MetricKey.requestFailure("orders", "test", "route"));
+        Flux.range(0, 8).flatMap(index -> metricRepository.recordOnce("same-observation", keys, CLOCK.instant()))
+                .blockLast(TIMEOUT);
+        keys.forEach(key -> assertThat(metricRepository.find(key, CLOCK.instant()).block(TIMEOUT).getCount()).isEqualTo(1));
+    }
+
+    @Test
+    void observationFailureRollsBackBothCountersAndReceipt() {
+        var failing = new MySqlMetricWindowRepository(databaseClient) {
+            @Override
+            public Mono<Void> incrementAll(List<MetricKey> keys, Instant window) {
+                return super.incrementAll(keys, window).then(Mono.error(new IllegalStateException("after increment")));
+            }
+        };
+        var key = MetricKey.requestTotal("orders", "test", "route");
+        assertThatThrownBy(() -> failing.recordOnce("rollback-observation", List.of(key), CLOCK.instant()).block(TIMEOUT))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(metricRepository.find(key, CLOCK.instant()).block(TIMEOUT)).isNull();
+        metricRepository.recordOnce("rollback-observation", List.of(key), CLOCK.instant()).block(TIMEOUT);
+        assertThat(metricRepository.find(key, CLOCK.instant()).block(TIMEOUT).getCount()).isEqualTo(1);
+    }
+
+    @Test
+    void requestInsertFailureRollsBackNewTask() {
+        var diagnoses = new MySqlDiagnosisRepository(databaseClient, new ObjectMapper());
+        var first = newDiagnosisTask("first");
+        var second = newDiagnosisTask("second");
+        diagnoses.createTask(first, request(first, "duplicate-event")).block(TIMEOUT);
+        assertThatThrownBy(() -> diagnoses.createTask(second, request(second, "duplicate-event")).block(TIMEOUT))
+                .isInstanceOf(RuntimeException.class);
+        assertThat(diagnoses.findTaskById(second.getId()).block(TIMEOUT)).isNull();
+        assertThat(diagnoses.pending(10).count().block(TIMEOUT)).isEqualTo(1);
+    }
+
+    @Test
+    void reportInsertFailureRollsBackTheSuccessfulStateTransition() {
+        var diagnoses = new MySqlDiagnosisRepository(databaseClient, new ObjectMapper());
+        var first = newDiagnosisTask("first");
+        var second = newDiagnosisTask("second");
+        diagnoses.createTask(first, request(first, "event-first")).block(TIMEOUT);
+        diagnoses.createTask(second, request(second, "event-second")).block(TIMEOUT);
+        var firstReport = report(first, "shared-report-id");
+        diagnoses.complete(first, first.complete(firstReport, CLOCK.instant()), firstReport).block(TIMEOUT);
+        var conflictingReport = report(second, "shared-report-id");
+        assertThatThrownBy(() -> diagnoses.complete(second, second.complete(conflictingReport, CLOCK.instant()),
+                conflictingReport).block(TIMEOUT)).isInstanceOf(RuntimeException.class);
+        assertThat(diagnoses.findTaskById(second.getId()).block(TIMEOUT).getStatus()).isEqualTo(DiagnosisTaskStatus.PENDING);
+        assertThat(diagnoses.findReportByTaskId(second.getId()).block(TIMEOUT)).isNull();
+        assertThat(diagnoses.pending(10).count().block(TIMEOUT)).isEqualTo(1);
+    }
+
+    @Test
+    void cancellationAndCompletionHaveExactlyOneWinner() {
+        var diagnoses = new MySqlDiagnosisRepository(databaseClient, new ObjectMapper());
+        var task = newDiagnosisTask("race");
+        diagnoses.createTask(task, request(task, "race-event")).block(TIMEOUT);
+        var report = report(task, "race-report");
+        var results = Flux.merge(
+                diagnoses.transition(task, task.cancel(CLOCK.instant())).materialize(),
+                diagnoses.complete(task, task.complete(report, CLOCK.instant()), report).materialize())
+                .collectList().block(TIMEOUT);
+        assertThat(results.stream().filter(signal -> signal.isOnNext()).count()).isEqualTo(1);
+        assertThat(results.stream().filter(signal -> signal.isOnError()).count()).isEqualTo(1);
+        var stored = diagnoses.findTaskById(task.getId()).block(TIMEOUT);
+        assertThat(stored.getStatus()).isIn(DiagnosisTaskStatus.SUCCEEDED, DiagnosisTaskStatus.CANCELLED);
+        assertThat(diagnoses.findReportByTaskId(task.getId()).block(TIMEOUT) != null)
+                .isEqualTo(stored.getStatus() == DiagnosisTaskStatus.SUCCEEDED);
+    }
+
+    private DiagnosisTask newDiagnosisTask(String id) {
+        String incidentId = "incident-" + id;
+        incidentRepository.save(Incident.open(incidentId, "dedup-" + id, "orders", "test", "fp-" + id,
+                "ERROR", 3, CLOCK.instant(), CLOCK.instant(), new AnomalyPolicyReference("global-default", 1)))
+                .block(TIMEOUT);
+        return DiagnosisTask.request("task-" + id, incidentId, 1, CLOCK.instant());
+    }
+
+    private DiagnosisRequestedEvent request(DiagnosisTask task, String id) {
+        return new DiagnosisRequestedEvent(id, task.getId(), task.getIncidentId(), task.getVersion(), task.getCreatedAt());
+    }
+
+    private DiagnosisReport report(DiagnosisTask task, String id) {
+        return DiagnosisReport.generate(id, task.getId(), task.getVersion(), "database timeout", 0.8,
+                List.of("evidence"), List.of("inspect"), List.of("context"), CLOCK.instant());
     }
 
     private static Flyway migrate(String jdbcUrl, String target) {

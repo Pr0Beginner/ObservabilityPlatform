@@ -9,6 +9,9 @@ import java.time.Instant;
 import java.util.List;
 
 public interface MetricWindowRepository {
+    /** Atomically records all counters and the observation receipt; redelivery is a no-op. */
+    Mono<Void> recordOnce(String observationId, List<MetricKey> keys, Instant windowStart);
+
     Mono<MetricWindow> increment(MetricKey key, Instant windowStart, long delta);
 
     Mono<Void> incrementAll(List<MetricKey> keys, Instant windowStart);

@@ -2,8 +2,11 @@ package org.zmy.observabilityplatform.incident.infrastructure.repository.mysql;
 
 import io.r2dbc.spi.Row;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.r2dbc.connection.R2dbcTransactionManager;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import org.zmy.observabilityplatform.incident.domain.model.MetricKey;
 import org.zmy.observabilityplatform.incident.domain.model.MetricType;
 import org.zmy.observabilityplatform.incident.domain.model.MetricWindow;
@@ -23,9 +26,31 @@ public class MySqlMetricWindowRepository implements MetricWindowRepository {
             + "window_start, metric_count";
 
     private final DatabaseClient databaseClient;
+    private final TransactionalOperator transactions;
 
     public MySqlMetricWindowRepository(DatabaseClient databaseClient) {
         this.databaseClient = databaseClient;
+        this.transactions = TransactionalOperator.create(new R2dbcTransactionManager(databaseClient.getConnectionFactory()));
+    }
+
+    @Override
+    public Mono<Void> recordOnce(String observationId, List<MetricKey> keys, Instant windowStart) {
+        return Mono.defer(() -> {
+            if (observationId == null || observationId.isBlank() || observationId.length() > 255
+                    || keys == null || keys.isEmpty() || windowStart == null) {
+                return Mono.error(new IllegalArgumentException("observation ID, metric keys and window are required"));
+            }
+            List<MetricKey> validKeys = List.copyOf(keys);
+            Mono<Void> work = databaseClient.sql("""
+                            INSERT INTO metric_observations (observation_id, window_start)
+                            VALUES (:id, :windowStart)
+                            """)
+                    .bind("id", observationId).bind("windowStart", toDatabaseTime(windowStart))
+                    .fetch().rowsUpdated().map(rows -> true)
+                    .onErrorResume(DuplicateKeyException.class, error -> Mono.just(false))
+                    .flatMap(created -> created ? incrementAll(validKeys, windowStart) : Mono.empty());
+            return transactions.transactional(work);
+        });
     }
 
     @Override

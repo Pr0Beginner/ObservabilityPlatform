@@ -10,15 +10,37 @@ import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.List;
 
 @Repository
 @ConditionalOnProperty(name = "app.adapters.mode", havingValue = "local", matchIfMissing = true)
 public class InMemoryMetricWindowRepository implements MetricWindowRepository {
     private final Map<String, StoredWindow> values = new ConcurrentHashMap<>();
+    private final Set<String> observations = new HashSet<>();
+
+    @Override
+    public Mono<Void> recordOnce(String observationId, List<MetricKey> keys, Instant windowStart) {
+        return Mono.fromRunnable(() -> {
+            if (observationId == null || observationId.isBlank() || observationId.length() > 255
+                    || keys == null || keys.isEmpty() || windowStart == null) {
+                throw new IllegalArgumentException("observation ID, metric keys and window are required");
+            }
+            List<MetricKey> validKeys = List.copyOf(keys);
+            synchronized (observations) {
+                if (observations.contains(observationId)) {
+                    return;
+                }
+                validKeys.forEach(key -> values.computeIfAbsent(identity(key, windowStart),
+                        ignored -> new StoredWindow(key, windowStart)).count.incrementAndGet());
+                observations.add(observationId);
+            }
+        });
+    }
 
     @Override
     public Mono<MetricWindow> increment(MetricKey key, Instant windowStart, long delta) {

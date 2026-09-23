@@ -4,13 +4,12 @@ import org.springframework.stereotype.Service;
 import org.zmy.observabilityplatform.incident.application.command.InspectLogBatchCommand;
 import org.zmy.observabilityplatform.incident.application.command.ObservedLogCommand;
 import org.zmy.observabilityplatform.incident.domain.model.AnomalyPolicyReference;
-import org.zmy.observabilityplatform.incident.domain.model.Incident;
-import org.zmy.observabilityplatform.incident.domain.repository.IncidentRepository;
-import org.zmy.observabilityplatform.incident.domain.model.MetricKey;
-import org.zmy.observabilityplatform.incident.domain.repository.MetricWindowRepository;
-import org.zmy.observabilityplatform.incident.domain.repository.IncidentTraceLinkRepository;
 import org.zmy.observabilityplatform.incident.domain.model.IncidentTraceLink;
+import org.zmy.observabilityplatform.incident.domain.model.MetricKey;
+import org.zmy.observabilityplatform.incident.domain.repository.IncidentRepository;
+import org.zmy.observabilityplatform.incident.domain.repository.IncidentTraceLinkRepository;
 import org.zmy.observabilityplatform.incident.domain.repository.MetricTraceSampleRepository;
+import org.zmy.observabilityplatform.incident.domain.repository.MetricWindowRepository;
 import org.zmy.observabilityplatform.incident.domain.service.ErrorIncidentPolicy;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -77,7 +76,8 @@ public class ErrorThresholdDetector {
                 entry.getFingerprint());
         MetricKey metricKey = MetricKey.errorFingerprint(entry.getService(), entry.getEnvironment(),
                 entry.getFingerprint());
-        return metricWindowRepository.increment(metricKey, window, 1)
+        return metricWindowRepository.recordOnce("error:" + entry.getLogId(), List.of(metricKey), window)
+                .then(Mono.defer(() -> metricWindowRepository.find(metricKey, window)))
                 .flatMap(metric -> traceSampleRepository.recordIfAbsent(metricKey, window, entry.getTraceId())
                         .thenReturn(metric))
                 .filter(metric -> incidentPolicy.hasReachedThreshold(metric.getCount()))

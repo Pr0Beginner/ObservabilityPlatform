@@ -1,5 +1,6 @@
 package org.zmy.observabilityplatform.logging.infrastructure.configuration;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.zmy.observabilityplatform.logging.domain.service.LogEntryFactory;
@@ -8,6 +9,7 @@ import org.zmy.observabilityplatform.logging.domain.service.LogParser;
 import org.zmy.observabilityplatform.logging.domain.service.LogParserRegistry;
 import org.zmy.observabilityplatform.logging.domain.service.SensitiveDataProtector;
 import org.zmy.observabilityplatform.logging.domain.service.TraceReconstructionService;
+import org.zmy.observabilityplatform.logging.infrastructure.parser.JsonSensitiveDataProtector;
 
 import java.util.List;
 
@@ -19,8 +21,8 @@ public class LoggingDomainConfiguration {
     }
 
     @Bean
-    SensitiveDataProtector sensitiveDataProtector() {
-        return new SensitiveDataProtector();
+    SensitiveDataProtector sensitiveDataProtector(ObjectMapper objectMapper) {
+        return new JsonSensitiveDataProtector(objectMapper);
     }
 
     @Bean

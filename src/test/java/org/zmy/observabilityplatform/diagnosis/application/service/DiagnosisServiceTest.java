@@ -4,9 +4,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.zmy.observabilityplatform.diagnosis.application.dto.DiagnosisTaskView;
 import org.zmy.observabilityplatform.diagnosis.domain.event.DiagnosisCompletedEvent;
+import org.zmy.observabilityplatform.diagnosis.domain.event.DiagnosisRequestedEvent;
 import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisTask;
 import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisTaskStatus;
-import org.zmy.observabilityplatform.diagnosis.infrastructure.messaging.LocalDiagnosisRequestedPublisher;
 import org.zmy.observabilityplatform.diagnosis.infrastructure.repository.memory.InMemoryDiagnosisRepository;
 import org.zmy.observabilityplatform.incident.application.service.IncidentQueryService;
 import org.zmy.observabilityplatform.incident.domain.model.AnomalyPolicyReference;
@@ -38,7 +38,7 @@ class DiagnosisServiceTest {
                 new AnomalyPolicyReference("global-default", 1))).block();
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         service = new DiagnosisService(repository, new IncidentQueryService(incidents, incidents),
-                new LocalDiagnosisRequestedPublisher(), clock, auditTrail(clock));
+                clock, auditTrail(clock));
     }
 
     @Test
@@ -63,7 +63,8 @@ class DiagnosisServiceTest {
     void timesOutExpiredActiveTasks() {
         DiagnosisTask expired = DiagnosisTask.request("task-expired", "incident-1", 1,
                 NOW.minus(Duration.ofMinutes(20)));
-        repository.saveTask(expired).block();
+        repository.createTask(expired, new DiagnosisRequestedEvent("event-expired", expired.getId(),
+                expired.getIncidentId(), expired.getVersion(), expired.getCreatedAt())).block();
 
         service.timeoutExpired(Duration.ofMinutes(10)).block();
 

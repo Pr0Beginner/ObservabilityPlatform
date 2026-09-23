@@ -1,26 +1,22 @@
 package org.zmy.observabilityplatform.logging.interfaces.rest.controller;
 
 import jakarta.validation.Valid;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.zmy.observabilityplatform.logging.application.query.LogSearchQuery;
-import org.zmy.observabilityplatform.logging.application.query.LogCursorCodec;
 import org.zmy.observabilityplatform.logging.application.service.LogIngestionService;
 import org.zmy.observabilityplatform.logging.application.service.LogQueryService;
 import org.zmy.observabilityplatform.logging.interfaces.rest.assembler.LogRequestAssembler;
 import org.zmy.observabilityplatform.logging.interfaces.rest.request.LogBatchRequest;
+import org.zmy.observabilityplatform.logging.interfaces.rest.request.LogSearchRequest;
 import org.zmy.observabilityplatform.logging.interfaces.rest.response.LogBatchResponse;
 import org.zmy.observabilityplatform.logging.interfaces.rest.response.LogPageResponse;
 import reactor.core.publisher.Mono;
-
-import java.time.Instant;
 
 @RestController
 @RequestMapping("/api/v1/logs")
@@ -28,16 +24,13 @@ public class LogController {
     private final LogIngestionService ingestionService;
     private final LogQueryService queryService;
     private final LogRequestAssembler requestAssembler;
-    private final LogCursorCodec cursorCodec;
 
     public LogController(LogIngestionService ingestionService,
                          LogQueryService queryService,
-                         LogRequestAssembler requestAssembler,
-                         LogCursorCodec cursorCodec) {
+                         LogRequestAssembler requestAssembler) {
         this.ingestionService = ingestionService;
         this.queryService = queryService;
         this.requestAssembler = requestAssembler;
-        this.cursorCodec = cursorCodec;
     }
 
     /**
@@ -51,24 +44,11 @@ public class LogController {
     }
 
     /**
-     * 按时间、服务、环境和日志特征等条件组合查询日志。
+     * 按组合条件查询日志，并返回可继续向后翻页的游标。
      */
     @GetMapping
-    public Mono<LogPageResponse> search(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
-            @RequestParam(required = false) String service,
-            @RequestParam(required = false) String environment,
-            @RequestParam(required = false) String level,
-            @RequestParam(required = false) String traceId,
-            @RequestParam(required = false) String spanId,
-            @RequestParam(required = false) String requestId,
-            @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String fingerprint,
-            @RequestParam(required = false) String cursor,
-            @RequestParam(defaultValue = "100") int size) {
-        return queryService.search(new LogSearchQuery(from, to, service, environment, level, traceId,
-                        spanId, requestId, keyword, fingerprint, cursorCodec.decode(cursor), size))
+    public Mono<LogPageResponse> search(@Valid @ModelAttribute LogSearchRequest request) {
+        return queryService.search(requestAssembler.toQuery(request))
                 .map(LogPageResponse::from);
     }
 }

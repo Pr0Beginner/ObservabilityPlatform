@@ -6,6 +6,7 @@ import java.time.Instant;
 
 @Value
 public class ObservedLogCommand {
+    String logId;
     Instant timestamp;
     String service;
     String environment;

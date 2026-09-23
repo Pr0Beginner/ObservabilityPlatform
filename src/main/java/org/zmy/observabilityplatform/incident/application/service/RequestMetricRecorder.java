@@ -5,8 +5,8 @@ import org.springframework.stereotype.Service;
 import org.zmy.observabilityplatform.incident.application.command.InspectLogBatchCommand;
 import org.zmy.observabilityplatform.incident.application.command.ObservedLogCommand;
 import org.zmy.observabilityplatform.incident.domain.model.MetricKey;
-import org.zmy.observabilityplatform.incident.domain.repository.MetricWindowRepository;
 import org.zmy.observabilityplatform.incident.domain.repository.MetricTraceSampleRepository;
+import org.zmy.observabilityplatform.incident.domain.repository.MetricWindowRepository;
 import org.zmy.observabilityplatform.incident.domain.service.MetricWindowPolicy;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -59,7 +59,7 @@ public class RequestMetricRecorder {
         if (error != null) {
             samples = samples.then(traceSampleRepository.recordIfAbsent(error, window, log.getTraceId()));
         }
-        return repository.incrementAll(metrics, window).then(samples);
+        return repository.recordOnce("request:" + log.getLogId(), metrics, window).then(samples);
     }
 
     private boolean isCompletedRequest(ObservedLogCommand log) {

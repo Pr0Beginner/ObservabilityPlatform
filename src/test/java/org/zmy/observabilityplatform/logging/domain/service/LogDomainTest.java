@@ -15,12 +15,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LogDomainTest {
-    private final SensitiveDataProtector protector = new SensitiveDataProtector();
     private final LogFingerprintGenerator fingerprints = new LogFingerprintGenerator();
 
     @Test
     void masksCommonSecrets() {
-        String value = protector.protect("phone=13812345678 password=hunter2 token=Bearer abc.def");
+        String value = SensitiveFieldPolicy.protectText("phone=13812345678 password=hunter2 token=Bearer abc.def");
 
         assertThat(value).doesNotContain("13812345678", "hunter2", "abc.def");
     }

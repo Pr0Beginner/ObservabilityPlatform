@@ -153,6 +153,10 @@ public final class Incident {
         }
         long alreadyObserved = windowStart.equals(lastObservedWindow) && currentValue != null
                 ? currentValue.longValue() : 0;
+        // 重投已经观察过的窗口计数不产生新状态变化，也不能重新打开已恢复的故障。
+        if (windowStart.equals(lastObservedWindow) && count <= alreadyObserved) {
+            return this;
+        }
         long observedInWindow = Math.max(count, alreadyObserved);
         long nextErrorCount = errorCount + Math.max(0, observedInWindow - alreadyObserved);
         IncidentStatus nextStatus = status == IncidentStatus.RESOLVED || status == IncidentStatus.CLOSED

@@ -5,14 +5,21 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.r2dbc.spi.Row;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.r2dbc.connection.R2dbcTransactionManager;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.reactive.TransactionalOperator;
+import org.zmy.observabilityplatform.diagnosis.application.publisher.DiagnosisRequestOutbox;
+import org.zmy.observabilityplatform.diagnosis.domain.event.DiagnosisRequestedEvent;
+import org.zmy.observabilityplatform.diagnosis.domain.exception.DiagnosisStateConflictException;
 import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisReport;
 import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisTask;
 import org.zmy.observabilityplatform.diagnosis.domain.model.DiagnosisTaskStatus;
 import org.zmy.observabilityplatform.diagnosis.domain.repository.DiagnosisRepository;
-import reactor.core.publisher.Mono;
+import org.zmy.observabilityplatform.shared.exception.BusinessConflictException;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -21,31 +28,98 @@ import java.util.List;
 
 @Repository
 @ConditionalOnProperty(name = "app.adapters.mode", havingValue = "external")
-public class MySqlDiagnosisRepository implements DiagnosisRepository {
+public class MySqlDiagnosisRepository implements DiagnosisRepository, DiagnosisRequestOutbox {
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() { };
     private final DatabaseClient databaseClient;
     private final ObjectMapper objectMapper;
+    private final TransactionalOperator transactions;
 
     public MySqlDiagnosisRepository(DatabaseClient databaseClient, ObjectMapper objectMapper) {
         this.databaseClient = databaseClient;
         this.objectMapper = objectMapper;
+        this.transactions = TransactionalOperator.create(new R2dbcTransactionManager(databaseClient.getConnectionFactory()));
     }
 
     @Override
-    public Mono<DiagnosisTask> saveTask(DiagnosisTask task) {
-        return databaseClient.sql("""
+    public Mono<DiagnosisTask> createTask(DiagnosisTask task, DiagnosisRequestedEvent event) {
+        Mono<Void> insertTask = databaseClient.sql("""
                         INSERT INTO diagnosis_tasks (id, incident_id, version, status, created_at, updated_at, failure_reason)
                         VALUES (:id, :incidentId, :version, :status, :createdAt, :updatedAt, :failureReason)
-                        AS new
-                        ON DUPLICATE KEY UPDATE status = new.status, updated_at = new.updated_at,
-                            failure_reason = new.failure_reason
                         """)
                 .bind("id", task.getId()).bind("incidentId", task.getIncidentId()).bind("version", task.getVersion())
                 .bind("status", task.getStatus().name()).bind("createdAt", toDatabaseTime(task.getCreatedAt()))
                 .bind("updatedAt", toDatabaseTime(task.getUpdatedAt()))
                 .bind("failureReason", task.getFailureReason() == null ? "" : task.getFailureReason())
-                .fetch().rowsUpdated()
-                .then(findTaskById(task.getId()));
+                .fetch().rowsUpdated().then();
+        Mono<Void> insertRequest = databaseClient.sql("""
+                        INSERT INTO diagnosis_request_outbox (event_id, task_id, incident_id, version, requested_at)
+                        VALUES (:eventId, :taskId, :incidentId, :version, :requestedAt)
+                        """)
+                .bind("eventId", event.getEventId()).bind("taskId", task.getId())
+                .bind("incidentId", task.getIncidentId()).bind("version", task.getVersion())
+                .bind("requestedAt", toDatabaseTime(event.getRequestedAt())).fetch().rowsUpdated().then();
+        return transactions.transactional(insertTask.then(insertRequest))
+                .then(findTaskById(task.getId()))
+                .onErrorMap(DuplicateKeyException.class,
+                        error -> new BusinessConflictException("An active diagnosis or task version already exists"));
+    }
+
+    @Override
+    public Mono<DiagnosisTask> transition(DiagnosisTask expected, DiagnosisTask updated) {
+        return transactions.transactional(updateState(expected, updated).then(removeTerminalRequest(updated)))
+                .thenReturn(updated);
+    }
+
+    @Override
+    public Mono<DiagnosisTask> complete(DiagnosisTask expected, DiagnosisTask updated, DiagnosisReport report) {
+        if (updated.getStatus() != DiagnosisTaskStatus.SUCCEEDED || !updated.getId().equals(report.getTaskId())
+                || updated.getVersion() != report.getVersion()) {
+            return Mono.error(new IllegalArgumentException("Report must match the completed task"));
+        }
+        return transactions.transactional(updateState(expected, updated)
+                        .then(Mono.defer(() -> insertReport(report))).then(removeTerminalRequest(updated)))
+                .thenReturn(updated);
+    }
+
+    private Mono<Void> updateState(DiagnosisTask expected, DiagnosisTask updated) {
+        if (!expected.isActive()) {
+            return Mono.error(new DiagnosisStateConflictException(expected.getId()));
+        }
+        // States are monotonic within a task: comparing its original state prevents terminal overwrites.
+        return databaseClient.sql("""
+                        UPDATE diagnosis_tasks SET status = :status, updated_at = :updatedAt, failure_reason = :reason
+                        WHERE id = :id AND incident_id = :incidentId AND version = :version AND status = :expectedStatus
+                        """)
+                .bind("status", updated.getStatus().name()).bind("updatedAt", toDatabaseTime(updated.getUpdatedAt()))
+                .bind("reason", updated.getFailureReason() == null ? "" : updated.getFailureReason())
+                .bind("id", expected.getId()).bind("incidentId", expected.getIncidentId())
+                .bind("version", expected.getVersion()).bind("expectedStatus", expected.getStatus().name())
+                .fetch().rowsUpdated().flatMap(rows -> rows == 1 ? Mono.empty()
+                        : Mono.error(new DiagnosisStateConflictException(expected.getId())));
+    }
+
+    private Mono<Void> removeTerminalRequest(DiagnosisTask task) {
+        return task.isActive() ? Mono.empty() : databaseClient.sql(
+                        "DELETE FROM diagnosis_request_outbox WHERE task_id = :id")
+                .bind("id", task.getId()).fetch().rowsUpdated().then();
+    }
+
+    @Override
+    public Flux<DiagnosisRequestedEvent> pending(int limit) {
+        return databaseClient.sql("""
+                        SELECT event_id, task_id, incident_id, version, requested_at
+                        FROM diagnosis_request_outbox ORDER BY requested_at, event_id LIMIT :limit
+                        """)
+                .bind("limit", limit).map((row, metadata) -> new DiagnosisRequestedEvent(
+                        row.get("event_id", String.class), row.get("task_id", String.class),
+                        row.get("incident_id", String.class), number(row.get("version", Integer.class)),
+                        toInstant(row, "requested_at"))).all();
+    }
+
+    @Override
+    public Mono<Void> acknowledge(String eventId) {
+        return databaseClient.sql("DELETE FROM diagnosis_request_outbox WHERE event_id = :id")
+                .bind("id", eventId).fetch().rowsUpdated().then();
     }
 
     @Override
@@ -82,18 +156,12 @@ public class MySqlDiagnosisRepository implements DiagnosisRepository {
                 .map((row, metadata) -> mapTask(row)).all();
     }
 
-    @Override
-    public Mono<DiagnosisReport> saveReport(DiagnosisReport report) {
+    private Mono<Void> insertReport(DiagnosisReport report) {
         try {
             return databaseClient.sql("""
                             INSERT INTO diagnosis_reports
                                 (id, task_id, version, root_cause, confidence, evidence, recommendations, tool_calls, generated_at)
                             VALUES (:id, :taskId, :version, :rootCause, :confidence, :evidence, :recommendations, :toolCalls, :generatedAt)
-                            AS new
-                            ON DUPLICATE KEY UPDATE root_cause = new.root_cause,
-                                confidence = new.confidence, evidence = new.evidence,
-                                recommendations = new.recommendations, tool_calls = new.tool_calls,
-                                generated_at = new.generated_at
                             """)
                     .bind("id", report.getId()).bind("taskId", report.getTaskId()).bind("version", report.getVersion())
                     .bind("rootCause", report.getRootCause()).bind("confidence", report.getConfidence())
@@ -101,8 +169,7 @@ public class MySqlDiagnosisRepository implements DiagnosisRepository {
                     .bind("recommendations", objectMapper.writeValueAsString(report.getRecommendations()))
                     .bind("toolCalls", objectMapper.writeValueAsString(report.getToolCalls()))
                     .bind("generatedAt", toDatabaseTime(report.getGeneratedAt()))
-                    .fetch().rowsUpdated()
-                    .then(findReport(report.getTaskId(), report.getVersion()));
+                    .fetch().rowsUpdated().then();
         } catch (JsonProcessingException exception) {
             return Mono.error(exception);
         }
@@ -123,12 +190,6 @@ public class MySqlDiagnosisRepository implements DiagnosisRepository {
                         """)
                 .bind("cutoff", toDatabaseTime(cutoff))
                 .map((row, metadata) -> mapTask(row)).all();
-    }
-
-    private Mono<DiagnosisReport> findReport(String taskId, int version) {
-        return databaseClient.sql("SELECT * FROM diagnosis_reports WHERE task_id = :taskId AND version = :version")
-                .bind("taskId", taskId).bind("version", version)
-                .map((row, metadata) -> mapReport(row)).one();
     }
 
     private DiagnosisTask mapTask(Row row) {

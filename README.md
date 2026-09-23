@@ -56,6 +56,12 @@
 4. Diagnosis Agent 通过 gRPC Context Service 查询故障和相关日志，完成分析后通过 Kafka 返回结果。
 5. Diagnosis 校验任务状态，保存报告并把任务标记为成功或失败。
 
+诊断创建接口成功表示任务和 requested 事件已一同持久化。请求由 outbox 定时投递，Kafka 暂时不可用时保留原事件重试；投递间隔由 `DIAGNOSIS_DISPATCH_DELAY_MS` 配置，默认 1 秒。诊断报告和成功状态在同一事务内提交，取消、超时与完成通过原状态比较保证只有一个终态胜出。
+
+日志索引和指标统计分别幂等：索引重投可以返回重复，但下游处理仍继续；`metric_observations` 与计数更新在同一事务内提交，按日志 ID 区分请求计数和错误计数。幂等凭据不随指标窗口过期删除，以防较早的 Kafka 或死信重放重新累加已处理日志。升级会新增 V8 迁移；升级前已完成业务处理的历史日志没有这些凭据，不应批量重放它们来验证新机制。
+
+外部适配器模式部署时，由现有 Flyway 流程执行 `V8__observation_receipts_and_diagnosis_outbox.sql`。迁移会为现存 PENDING/RUNNING 任务补入待发送事件，并增加同一故障最多一个活动诊断的唯一约束；既有 V1–V7 迁移保持不变。
+
 业务关系可以概括为：`Logging` 提供观测事实，`Incident` 将事实聚合成故障，`Diagnosis` 围绕故障组织分析过程。三个上下文维护各自的领域模型，通过应用服务、查询接口和事件协作，不共享领域实体。
 
 ## 技术栈
@@ -239,4 +245,4 @@ mvn verify -Pintegration-tests
 k6 run load-test/log-ingestion.js
 ```
 
-`mvn test` 只运行快速单元测试；`integration-tests` Profile 使用 Testcontainers 启动 MySQL、Kafka 和 Elasticsearch，需要本机提供 Docker 环境。
+`mvn test` 执行 Checkstyle、领域/应用层依赖检查和无需外部中间件的测试；`integration-tests` Profile 使用 Testcontainers 启动 MySQL、Kafka 和 Elasticsearch，需要本机提供 Docker 环境。Checkstyle 的规则在 `config/checkstyle.xml`，编辑器基础格式在 `.editorconfig`。

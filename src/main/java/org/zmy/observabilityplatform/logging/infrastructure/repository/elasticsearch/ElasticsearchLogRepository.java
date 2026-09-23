@@ -17,6 +17,7 @@ import org.zmy.observabilityplatform.logging.domain.repository.LogRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -43,8 +44,10 @@ public class ElasticsearchLogRepository implements LogRepository, LogQueryReposi
         this.dataStream = dataStream;
         this.templateName = templateName;
         this.retention = retention;
-        // 模板初始化结果被缓存，进程生命周期内只执行一次安装请求。
-        this.templateInitialization = Mono.defer(this::installIndexTemplate).cache();
+        // 成功长期缓存；临时失败不缓存，后续消费重试可以重新安装模板。
+        this.templateInitialization = Mono.defer(this::installIndexTemplate)
+                .cache(value -> Duration.ofMillis(Long.MAX_VALUE), error -> Duration.ZERO,
+                        () -> Duration.ofMillis(Long.MAX_VALUE));
     }
 
     @Override
@@ -160,6 +163,7 @@ public class ElasticsearchLogRepository implements LogRepository, LogQueryReposi
         sort.addObject().putObject("@timestamp").put("order", "desc");
         sort.addObject().putObject("id").put("order", "desc");
         if (query.getCursor() != null) {
+            // 复用与排序字段完全一致的复合值，保证翻页期间不会因同一时间戳而重复或漏查。
             root.putArray("search_after")
                     .add(query.getCursor().getTimestampEpochMillis())
                     .add(query.getCursor().getId());
